@@ -1,0 +1,9 @@
+[project]
+name = "multi-codex"
+version = "0.1.0"
+description = "GitHub branch evaluator using OpenAI"
+requires-python = ">=3.9"
+dependencies = ["openai>=1.0.0"]
+
+[project.scripts]
+multi-codex = "multi_codex:main"
