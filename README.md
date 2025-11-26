@@ -1,5 +1,13 @@
 # multi-codex
 
+multi-codex is the command-line companion for reviewing multiple AI-generated solutions side by side. Tools like Codex can produce up to four different solutions to the same prompt; multi-codex helps you compare them, decide which one is best, and still capture the good ideas hiding in the other branches. The typical workflow:
+
+1. Ask Codex (e.g., at `chatgpt.com/codex`) to produce four solutions and open pull requests for each, giving you four branches.
+2. Run multi-codex to watch the repository, pick the branches to evaluate, and attach any specs or design docs.
+3. Read the generated report that spotlights the strongest branch plus the valuable ideas it missed.
+
+By design, multi-codex never calls the OpenAI API for you—you stay in control of costs instead of burning through an extra $200/month. It’s a practical helper for solo developers who juggle lots of feature development and want a calm, repeatable way to pick the right branch.
+
 A Mac CLI tool that watches a GitHub repository for new branches, lets you attach specification documents, and produces a single combined prompt you can paste into your AI UI to compare how well each branch satisfies the requirements.
 ## What the tool does
 

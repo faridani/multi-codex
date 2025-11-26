@@ -44,39 +44,42 @@ IGNORED_DIRS = {
     ".vscode",
 }
 
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+FG_CYAN = "\033[96m"
+FG_GREEN = "\033[92m"
+FG_MAGENTA = "\033[95m"
+FG_YELLOW = "\033[93m"
+FG_BLUE = "\033[94m"
+FG_WHITE = "\033[97m"
+
 BANNER = r"""
-░███     ░███            ░██    ░██    ░██                             ░██                       
-░████   ░████            ░██    ░██                                    ░██                       
-░██░██ ░██░██ ░██    ░██ ░██ ░████████ ░██ ░███████   ░███████   ░████████  ░███████  ░██    ░██ 
-░██ ░████ ░██ ░██    ░██ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██    ░██ ░██    ░██  ░██  ░██  
-░██  ░██  ░██ ░██    ░██ ░██    ░██    ░██░██        ░██    ░██ ░██    ░██ ░█████████   ░█████   
-░██       ░██ ░██   ░███ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██   ░███ ░██         ░██  ░██  
-░██       ░██  ░█████░██ ░██     ░████ ░██ ░███████   ░███████   ░█████░██  ░███████  ░██    ░██ 
-                                                                                                 
-                                                                                                 
-                                                                                                 
+░███     ░███            ░██    ░██    ░██                             ░██
+░████   ░████            ░██    ░██                                    ░██
+░██░██ ░██░██ ░██    ░██ ░██ ░████████ ░██ ░███████   ░███████   ░████████  ░███████  ░██    ░██
+░██ ░████ ░██ ░██    ░██ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██    ░██ ░██    ░██  ░██  ░██
+░██  ░██  ░██ ░██    ░██ ░██    ░██    ░██░██        ░██    ░██ ░██    ░██ ░█████████   ░█████
+░██       ░██ ░██   ░███ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██   ░███ ░██         ░██  ░██
+░██       ░██  ░█████░██ ░██     ░████ ░██ ░███████   ░███████   ░█████░██  ░███████  ░██    ░██
+
+
+
 
 Multi-branch code evaluator for GitHub repos.
 """
 
 INSTRUCTION_PROMPT = (
-    "You are an expert software architect.\n"
-    "You will be given a combined markdown document that contains:\n"
-    "1) Specifications / design docs / prompts.\n"
-    "2) Multiple branches of a GitHub repository, including file paths and file contents.\n"
+    "You are an expert software architect reviewing multiple candidate branches that were produced by an AI.\n"
+    "You will receive a combined markdown file containing:\n"
+    "1) The product specification / design prompt.\n"
+    "2) Several branches from the same GitHub repository, with file paths and contents.\n"
     "\n"
-    "Your tasks:\n"
-    "- Infer a clear list of key features/requirements from the specification section.\n"
-    "- Construct a MARKDOWN TABLE where:\n"
-    "  - Rows are features.\n"
-    "  - Columns are the branch names.\n"
-    "  - Each cell is 'Yes' or 'No' indicating whether that branch implements that feature.\n"
-    "- Base your answer on the branch contents – do not speculate without evidence.\n"
-    "- After the table, write:\n"
-    "  1) A short explanation of how you chose the 'best' branch.\n"
-    "  2) Explicitly name the single best branch.\n"
-    "  3) List the features that the best branch is still missing or only partially implements.\n"
-    "Use concise language."
+    "Please:\n"
+    "- Derive the key features/requirements from the specification.\n"
+    "- Build a MARKDOWN TABLE where rows are features and columns are branch names; each cell should be 'Yes' or 'No' based on evidence from the branch content. Do not speculate.\n"
+    "- After the table, explain briefly how you chose the strongest branch, name that branch explicitly, and list the worthwhile ideas from other branches that the best branch is missing or only partially implements.\n"
+    "Use precise, concise language that focuses on traceable evidence."
 )
 
 
@@ -95,9 +98,42 @@ class BranchSpec:
 # Small utilities
 # -----------------------
 
+
+def color_text(text: str, color: str, bold: bool = False, dim: bool = False) -> str:
+    """Return ANSI-styled text."""
+
+    prefix = ""
+    if bold:
+        prefix += BOLD
+    if dim:
+        prefix += DIM
+    prefix += color
+    return f"{prefix}{text}{RESET}"
+
+
+def headline(text: str) -> str:
+    return color_text(text, FG_WHITE, bold=True)
+
+
+def accent(text: str) -> str:
+    return color_text(text, FG_CYAN, bold=True)
+
+
+def success(text: str) -> str:
+    return color_text(text, FG_GREEN, bold=True)
+
+
+def warn(text: str) -> str:
+    return color_text(text, FG_YELLOW, bold=True)
+
 def print_banner() -> None:
     """Print a nice banner."""
-    print(BANNER)
+    print(color_text(BANNER, FG_MAGENTA))
+    subtitle = (
+        f"{accent('Multi-codex')} | {headline('Multi-branch code evaluator for GitHub repos')}\n"
+        f"{DIM}Review AI-generated branches, merge the best ideas, stay in control of your costs.{RESET}"
+    )
+    print(subtitle)
 
 
 def input_non_empty(prompt: str) -> str:
@@ -171,6 +207,26 @@ def ensure_app_dirs(repo_slug: str) -> (str, str):
     os.makedirs(report_path, exist_ok=True)
 
     return repo_path, report_path
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """Attempt to copy text to the system clipboard. Returns True on success."""
+
+    candidates = []
+
+    if sys.platform == "darwin":
+        candidates.append(["pbcopy"])
+    else:
+        candidates.extend([["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]])
+
+    for cmd in candidates:
+        try:
+            subprocess.run(cmd, input=text, text=True, check=True)
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            continue
+
+    return False
 
 
 def run_git(repo_path: str, args: List[str]) -> str:
@@ -457,10 +513,12 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
     selected: Dict[str, BranchSpec] = {}
     seen_branches: Set[str] = set()
 
-    print("\nMonitoring remote branches on 'origin'.")
-    print("Whenever a new branch appears, you'll be asked if you want to track it.")
-    print("After adding a branch you can start analysis immediately or keep waiting for more.")
-    print("Press Ctrl+C when you're ready to stop monitoring and generate the report.\n")
+    print(
+        f"\n{headline('Live branch monitor activated')} {DIM}(polling origin every 30s){RESET}"
+    )
+    print(f"{accent('What happens:')} I'll alert you when new branches appear and ask whether to track them.")
+    print("After each decision you can jump into analysis or keep waiting for more branches.")
+    print(f"Press {warn('Ctrl+C')} anytime to stop monitoring and build the report.\n")
 
     try:
         while True:
@@ -475,31 +533,36 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
             new_branches = sorted(remote_branches - seen_branches)
 
             for branch in new_branches:
-                print(f"\033[32m●\033[0m \033[97mNew branch detected:\033[0m \033[90m{branch}\033[0m")
+                print(f"{success('●')} {headline('New branch detected:')} {color_text(branch, FG_BLUE)}")
                 add_prompt = (
-                    f"\033[32m●\033[0m \033[97mAdd branch\033[0m "
-                    f"\033[90m'{branch}' to the evaluation set?\033[0m"
+                    f"{success('●')} {headline('Add branch')} {color_text(branch, FG_BLUE)} {DIM}(include in evaluation set?) {RESET}"
                 )
-                if ask_yes_no(add_prompt, default=True, suffix=" \033[90m[Y/n]:\033[0m "):
+                if ask_yes_no(add_prompt, default=True, suffix=f" {DIM}[Y/n]:{RESET} "):
                     selected[branch] = BranchSpec(name=branch)
-                    print(f"Branch '{branch}' added to evaluation set.\n")
+                    print(f"{success('Added')} {color_text(branch, FG_BLUE)} to evaluation set.\n")
 
                     if ask_yes_no(
-                        "\033[32m●\033[0m \033[97mStart analysis now?\033[0m "
-                        "\033[90m(Otherwise I'll keep monitoring for more branches.)\033[0m",
+                        f"{accent('Ready to analyze now?')} {DIM}(Otherwise I'll keep monitoring for more branches.){RESET}",
                         default=False,
-                        suffix=" \033[90m[yes/ press enter for No]:\033[0m ",
+                        suffix=f" {DIM}[yes/press Enter for No]:{RESET} ",
                     ):
-                        print("\nStarting analysis with the current set of branches...\n")
+                        print(f"\n{headline('Starting analysis with the current set of branches...')}\n")
                         return selected
                 else:
-                    print(f"Skipping branch '{branch}'.\n")
+                    print(f"{warn('Skipped')} {color_text(branch, FG_BLUE)}.\n")
+                    if ask_yes_no(
+                        f"{accent('Want to start analysis with the current tracked branches?')}",
+                        default=False,
+                        suffix=f" {DIM}[yes/press Enter for No]:{RESET} ",
+                    ):
+                        print(f"\n{headline('Starting analysis with the current set of branches...')}\n")
+                        return selected
 
             seen_branches = remote_branches
 
             if selected:
                 tracked = ", ".join(sorted(selected.keys()))
-                print(f"Currently tracking branches: {tracked}")
+                print(f"Currently tracking: {color_text(tracked, FG_BLUE)}")
 
             time.sleep(POLL_INTERVAL_SECONDS)
 
@@ -512,12 +575,13 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
 def main() -> None:
     print_banner()
 
-    print("Welcome to multi-codex.")
-    print("This tool will:")
-    print("  1) Monitor a GitHub repository for new branches.")
-    print("  2) Ask which branches to evaluate and where your spec lives.")
-    print("  3) Generate markdown files for each branch.")
-    print("  4) Build a combined markdown with specs + branches that you can paste into an AI UI.\n")
+    print(headline("Welcome to multi-codex."))
+    print(
+        f"{accent('Purpose:')} Curate multiple AI-generated branches, compare them against your spec, and surface the best ideas."
+    )
+    print(
+        f"{accent('Flow:')} I will monitor your repo, gather the branches you choose, and build a single markdown packet you can drop into ChatGPT for analysis.\n"
+    )
 
     repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
 
@@ -564,6 +628,17 @@ def main() -> None:
     print("\nCombined markdown saved to:")
     print_saved_file("  -> Path", combined_prompt_path)
     print("  (Contents intentionally not printed to avoid console noise)\n")
+
+    if copy_to_clipboard(combined_prompt):
+        print(success("Combined prompt copied to your clipboard."))
+    else:
+        print(warn("Could not copy the prompt to your clipboard automatically."))
+        print("Please open the combined markdown file and copy its contents manually.")
+
+    print(
+        f"Head to {accent('https://chatgpt.com/')} and paste the combined prompt into a new chat to review the branches."
+    )
+    print("(The full prompt is saved to the file above for reference.)\n")
 
     print("Done ✅")
     print("You can open the markdown files in your editor to inspect:")
