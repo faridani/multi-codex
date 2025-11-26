@@ -14,6 +14,8 @@ The tool never calls the OpenAI API (to avoid extra spend on top of the monthly 
 
 A Mac CLI tool that watches a GitHub repository for new branches, lets you attach specification documents, and produces a single combined prompt you can paste into your AI UI to compare how well each branch satisfies the requirements.
 
+<img src="terminal.png" alt="drawing" width="700"/>
+
 ## What the tool does
 
 1. **You run `multi-codex` → CLI appears**: The banner and intro show; it asks for your GitHub repo URL.
