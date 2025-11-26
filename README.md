@@ -1,3 +1,7 @@
+
+<img src="multi-codex.png" alt="drawing" width="450"/>
+
+
 # multi-codex
 
 Multi-codex is a Mac CLI companion for multi solution coding workflows. Tools like Codex allow you to produce up to four different solutions for the same feature. Multi-codex helps you compare those solutions, decide which is best, and spot the smart ideas hiding in the other branches so you can fold them into the winner. The typical flow:
