@@ -6,14 +6,12 @@ Mac CLI tool to:
 - Watch a GitHub repo for new branches (using your existing git/GitHub auth).
 - Ask which branches to evaluate and where your specification doc lives.
 - Generate markdown snapshots of each branch (file names + contents).
-- Build a combined markdown file with specs + branches.
-- Call the OpenAI API to produce a feature vs. branch comparison table
-  and recommend the best branch.
+- Build a combined markdown file with specs + branches that you can paste
+  into an AI UI to get a comparison table of features vs. branches.
 
 Requirements:
 - Python 3.9+
 - git installed and configured (so that it can access your private repos)
-- pip install openai
 
 Optional:
 - Add an executable wrapper so you can run it as `multi-codex`.
@@ -58,8 +56,28 @@ BANNER = r"""
                                                                                                  
                                                                                                  
 
-Multi-branch code evaluator for GitHub repos using OpenAI.
+Multi-branch code evaluator for GitHub repos.
 """
+
+INSTRUCTION_PROMPT = (
+    "You are an expert software architect.\n"
+    "You will be given a combined markdown document that contains:\n"
+    "1) Specifications / design docs / prompts.\n"
+    "2) Multiple branches of a GitHub repository, including file paths and file contents.\n"
+    "\n"
+    "Your tasks:\n"
+    "- Infer a clear list of key features/requirements from the specification section.\n"
+    "- Construct a MARKDOWN TABLE where:\n"
+    "  - Rows are features.\n"
+    "  - Columns are the branch names.\n"
+    "  - Each cell is 'Yes' or 'No' indicating whether that branch implements that feature.\n"
+    "- Base your answer on the branch contents – do not speculate without evidence.\n"
+    "- After the table, write:\n"
+    "  1) A short explanation of how you chose the 'best' branch.\n"
+    "  2) Explicitly name the single best branch.\n"
+    "  3) List the features that the best branch is still missing or only partially implements.\n"
+    "Use concise language."
+)
 
 
 # -----------------------
@@ -91,14 +109,14 @@ def input_non_empty(prompt: str) -> str:
         print("Please enter a non-empty value.\n")
 
 
-def ask_yes_no(prompt: str, default: bool = False) -> bool:
+def ask_yes_no(prompt: str, default: bool = False, suffix: Optional[str] = None) -> bool:
     """
     Ask a yes/no question.
 
     Returns True for yes, False for no.
     """
-    suffix = " [Y/n]: " if default else " [y/N]: "
-    full_prompt = prompt.rstrip() + suffix
+    computed_suffix = suffix if suffix is not None else (" [Y/n]: " if default else " [y/N]: ")
+    full_prompt = prompt.rstrip() + computed_suffix
     answer = input(full_prompt).strip().lower()
 
     if not answer:
@@ -138,7 +156,7 @@ def ensure_app_dirs(repo_slug: str) -> (str, str):
     """
     Create/return the app directories:
     - ~/.multi_codex/repos/<slug> (git clone)
-    - ~/.multi_codex/reports/<slug> (markdown + OpenAI report)
+    - ~/.multi_codex/reports/<slug> (markdown exports)
     """
     home = os.path.expanduser("~")
     app_root = os.path.join(home, APP_DIR_NAME)
@@ -210,9 +228,6 @@ def ensure_local_clone(repo_url: str, repo_path: str) -> None:
         if e.stderr:
             print(e.stderr, file=sys.stderr)
         sys.exit(1)
-
-    if result.stdout.strip():
-        print(result.stdout.strip())
 
 
 def get_remote_branch_names(repo_path: str) -> Set[str]:
@@ -374,18 +389,16 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     return "\n".join(lines)
 
 
-def build_combined_markdown(spec_path: Optional[str],
-                            spec_content: str,
-                            branch_markdown: Dict[str, str]) -> str:
-    """
-    Build the final combined markdown file you described:
+def print_saved_file(label: str, path: str) -> None:
+    """Log saved file paths without printing file contents."""
+    print(f"{label}: {path}")
 
-    # specifications and design docs and prompts
-    ...
-    # branch 1 name and content
-    ...
-    # branch 2 name and content
-    ...
+
+def build_document_body(spec_path: Optional[str],
+                        spec_content: str,
+                        branch_markdown: Dict[str, str]) -> str:
+    """
+    Build the combined specification + branch content section (without prompts).
     """
     parts: List[str] = []
 
@@ -410,84 +423,25 @@ def build_combined_markdown(spec_path: Optional[str],
     return "\n".join(parts)
 
 
-# -----------------------
-# OpenAI integration
-# -----------------------
-
-def generate_openai_report(combined_markdown: str,
-                           branch_names: List[str]) -> str:
+def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     """
-    Call the OpenAI API to analyze which branch implements which features,
-    and select the best branch.
-
-    Expects OPENAI_API_KEY to be set in environment.
+    Build the single, copy-paste-ready prompt (instructions + document body).
+    The first line is the system-style instruction required by the user.
     """
-    try:
-        from openai import OpenAI  # type: ignore[import-not-found]
-    except ImportError:
-        print("\nError: The 'openai' package is not installed.", file=sys.stderr)
-        print("Install it with: pip install openai\n", file=sys.stderr)
-        sys.exit(1)
+    branches_display = ", ".join(f"`{name}`" for name in branch_names) if branch_names else "None"
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        print("\nError: OPENAI_API_KEY is not set in your environment.", file=sys.stderr)
-        print("Set it with something like:", file=sys.stderr)
-        print("  export OPENAI_API_KEY='sk-...'\n", file=sys.stderr)
-        sys.exit(1)
+    parts: List[str] = [
+        INSTRUCTION_PROMPT,
+        "",
+        "Here is the combined specification and branch content markdown.",
+        f"The branches to compare are: {branches_display}.",
+        "",
+        "---------------- BEGIN DOCUMENT ----------------",
+        document_body.rstrip(),
+        "---------------- END DOCUMENT ----------------",
+    ]
 
-    client = OpenAI(api_key=api_key)
-
-    branches_display = ", ".join(f"`{name}`" for name in branch_names)
-
-    system_message = (
-        "You are an expert software architect. "
-        "You will be given a combined markdown document that contains:\n"
-        "1) Specifications / design docs / prompts.\n"
-        "2) Multiple branches of a GitHub repository, including file paths and file contents.\n\n"
-        "Your tasks:\n"
-        "- Infer a clear list of key features/requirements from the specification section.\n"
-        "- Construct a MARKDOWN TABLE where:\n"
-        "  - Rows are features.\n"
-        "  - Columns are the branch names.\n"
-        "  - Each cell is 'Yes' or 'No' indicating whether that branch implements that feature.\n"
-        "- Base your answer on the branch contents – do not speculate without evidence.\n"
-        "- After the table, write:\n"
-        "  1) A short explanation of how you chose the 'best' branch.\n"
-        "  2) Explicitly name the single best branch.\n"
-        "  3) List the features that the best branch is still missing or only partially implements.\n"
-        "Use concise language."
-    )
-
-    user_message = (
-        "Here is the combined specification and branch content markdown.\n"
-        f"The branches to compare are: {branches_display}.\n\n"
-        "---------------- BEGIN DOCUMENT ----------------\n"
-        f"{combined_markdown}\n"
-        "---------------- END DOCUMENT ----------------\n"
-    )
-
-    print("Calling OpenAI API to generate comparison report...")
-
-    try:
-        completion = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=0.1,
-        )
-    except Exception as e:  # noqa: BLE001
-        print(f"\nError while calling OpenAI API: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        content = completion.choices[0].message.content
-    except Exception:
-        content = str(completion)
-
-    return content or ""
+    return "\n".join(parts)
 
 
 # -----------------------
@@ -521,14 +475,20 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
             new_branches = sorted(remote_branches - seen_branches)
 
             for branch in new_branches:
-                print(f"New branch detected: {branch}")
-                if ask_yes_no(f"Add branch '{branch}' to the evaluation set?", default=True):
+                print(f"\033[32m●\033[0m \033[97mNew branch detected:\033[0m \033[90m{branch}\033[0m")
+                add_prompt = (
+                    f"\033[32m●\033[0m \033[97mAdd branch\033[0m "
+                    f"\033[90m'{branch}' to the evaluation set?\033[0m"
+                )
+                if ask_yes_no(add_prompt, default=True, suffix=" \033[90m[Y/n]:\033[0m "):
                     selected[branch] = BranchSpec(name=branch)
                     print(f"Branch '{branch}' added to evaluation set.\n")
 
                     if ask_yes_no(
-                        "Start analysis now? (Otherwise I'll keep monitoring for more branches.)",
+                        "\033[32m●\033[0m \033[97mStart analysis now?\033[0m "
+                        "\033[90m(Otherwise I'll keep monitoring for more branches.)\033[0m",
                         default=False,
+                        suffix=" \033[90m[yes/ press enter for No]:\033[0m ",
                     ):
                         print("\nStarting analysis with the current set of branches...\n")
                         return selected
@@ -557,13 +517,7 @@ def main() -> None:
     print("  1) Monitor a GitHub repository for new branches.")
     print("  2) Ask which branches to evaluate and where your spec lives.")
     print("  3) Generate markdown files for each branch.")
-    print("  4) Build a combined markdown with specs + branches.")
-    print("  5) Ask OpenAI which branch best matches the spec.\n")
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        print("Error: OPENAI_API_KEY is not set in your environment.")
-        print("Please run: export OPENAI_API_KEY='sk-...'\nThen re-run multi-codex.")
-        sys.exit(1)
+    print("  4) Build a combined markdown with specs + branches that you can paste into an AI UI.\n")
 
     repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
 
@@ -595,32 +549,25 @@ def main() -> None:
         with open(branch_md_path, "w", encoding="utf-8") as f:
             f.write(md_text)
         bs.branch_markdown_path = branch_md_path
-        print(f"  -> Branch markdown saved to: {branch_md_path}")
+        print_saved_file("  -> Branch markdown saved to", branch_md_path)
 
-    # Combined markdown
-    combined_md = build_combined_markdown(spec_path, spec_content, branch_markdown)
-    combined_md_path = os.path.join(report_path, "combined_spec_and_branches.md")
-
-    with open(combined_md_path, "w", encoding="utf-8") as f:
-        f.write(combined_md)
-
-    print(f"\nCombined markdown saved to:\n  {combined_md_path}\n")
-
-    # Call OpenAI to get the comparison table and best branch
+    document_body = build_document_body(spec_path, spec_content, branch_markdown)
     branch_names_sorted = sorted(branch_specs.keys())
-    report_text = generate_openai_report(combined_md, branch_names_sorted)
 
-    report_path_md = os.path.join(report_path, "openai_branch_comparison_report.md")
-    with open(report_path_md, "w", encoding="utf-8") as f:
-        f.write(report_text)
+    # Combined markdown prompt (ready to paste into AI UI)
+    combined_prompt = build_final_prompt(document_body, branch_names_sorted)
+    combined_prompt_path = os.path.join(report_path, "combined_spec_and_branches.md")
 
-    print("OpenAI comparison report saved to:")
-    print(f"  {report_path_md}\n")
+    with open(combined_prompt_path, "w", encoding="utf-8") as f:
+        f.write(combined_prompt)
+
+    print("\nCombined markdown saved to:")
+    print_saved_file("  -> Path", combined_prompt_path)
+    print("  (Contents intentionally not printed to avoid console noise)\n")
 
     print("Done ✅")
     print("You can open the markdown files in your editor to inspect:")
-    print(f"  - Combined specs + branches : {combined_md_path}")
-    print(f"  - OpenAI comparison report  : {report_path_md}")
+    print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
     print("\nThank you for using multi-codex.\n")
 
 

@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "multi-codex"
 version = "0.1.0"
-description = "GitHub branch evaluator using OpenAI"
+description = "GitHub branch evaluator that builds a copy-paste prompt"
 requires-python = ">=3.9"
-dependencies = ["openai>=1.0.0"]
+dependencies = []
 
 [tool.setuptools]
 py-modules = ["multi_codex"]
