@@ -68,10 +68,8 @@ Multi-branch code evaluator for GitHub repos using OpenAI.
 
 @dataclass
 class BranchSpec:
-    """Holds info about a tracked branch and its spec document."""
+    """Holds info about a tracked branch."""
     name: str
-    spec_path: Optional[str]
-    spec_content: str
     branch_markdown_path: Optional[str] = None
 
 
@@ -239,38 +237,52 @@ def get_remote_branch_names(repo_path: str) -> Set[str]:
     return branches
 
 
-def prompt_for_spec_path(branch_name: str) -> (Optional[str], str):
+def prompt_for_project_spec() -> (Optional[str], str):
     """
-    Ask the user where the specification document is.
-    Returns (path_or_None, content).
+    Ask once for the project-wide specification/design document.
+    Returns (path_or_None, content). Requires either a path or pasted content.
     """
-    print(f"\nProvide the specification/design document for branch '{branch_name}'.")
-    print("This should be a text/markdown file on your Mac.")
-    print("Leave blank to skip specifying a doc for this branch.\n")
+    print("\nProvide the specification/design document for this project.")
+    print("Option 1: enter a file path.")
+    print("Option 2: press Enter and paste the spec content (finish with a line containing only 'EOF').\n")
 
     while True:
-        raw = input("Path to spec document (or just Enter to skip): ").strip()
-        if not raw:
-            print("No specification provided for this branch.\n")
-            return None, ""
+        raw = input("Path to spec document (or press Enter to paste it now): ").strip()
+        if raw:
+            expanded = os.path.expanduser(raw)
+            if not os.path.isfile(expanded):
+                print("That file does not exist. Please try again.\n")
+                continue
 
-        expanded = os.path.expanduser(raw)
-        if not os.path.isfile(expanded):
-            print("That file does not exist. Please try again.\n")
+            try:
+                with open(expanded, "r", encoding="utf-8") as f:
+                    content = f.read()
+                return expanded, content
+            except UnicodeDecodeError:
+                with open(expanded, "r", encoding="latin-1") as f:
+                    content = f.read()
+                return expanded, content
+            except Exception as e:  # noqa: BLE001
+                print(f"Error reading spec file: {e}\n")
+                continue
+
+        print("\nPaste the specification content. End input with a single line containing only 'EOF'.")
+        lines: List[str] = []
+        while True:
+            try:
+                line = input()
+            except EOFError:
+                break
+            if line.strip() == "EOF":
+                break
+            lines.append(line)
+
+        content = "\n".join(lines).strip()
+        if not content:
+            print("No specification content provided. Please provide a path or paste content.\n")
             continue
 
-        try:
-            with open(expanded, "r", encoding="utf-8") as f:
-                content = f.read()
-            return expanded, content
-        except UnicodeDecodeError:
-            # fall back to latin-1 just in case
-            with open(expanded, "r", encoding="latin-1") as f:
-                content = f.read()
-            return expanded, content
-        except Exception as e:  # noqa: BLE001
-            print(f"Error reading spec file: {e}\n")
-            # let them try again
+        return None, content
 
 
 def is_binary_content(sample: bytes) -> bool:
@@ -362,7 +374,8 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     return "\n".join(lines)
 
 
-def build_combined_markdown(branch_specs: Dict[str, BranchSpec],
+def build_combined_markdown(spec_path: Optional[str],
+                            spec_content: str,
                             branch_markdown: Dict[str, str]) -> str:
     """
     Build the final combined markdown file you described:
@@ -379,22 +392,16 @@ def build_combined_markdown(branch_specs: Dict[str, BranchSpec],
     parts.append("# Specifications and design docs and prompts")
     parts.append("")
 
-    any_spec = any(bs.spec_content.strip() for bs in branch_specs.values())
-
-    if not any_spec:
-        parts.append("_No specifications were provided for any branch._\n")
+    if spec_content.strip():
+        if spec_path:
+            parts.append(f"_Source: `{spec_path}`_")
+        parts.append("")
+        parts.append(spec_content.rstrip())
+        parts.append("")
     else:
-        for branch_name, bs in branch_specs.items():
-            if not bs.spec_content.strip():
-                continue
-            parts.append(f"## Specification for branch `{branch_name}`")
-            if bs.spec_path:
-                parts.append(f"_Source: `{bs.spec_path}`_")
-            parts.append("")
-            parts.append(bs.spec_content.rstrip())
-            parts.append("")
+        parts.append("_No specification was provided for this project._\n")
 
-    for branch_name in branch_specs:
+    for branch_name in branch_markdown:
         parts.append(f"# {branch_name} branch content")
         parts.append("")
         parts.append(branch_markdown[branch_name].rstrip())
@@ -490,15 +497,15 @@ def generate_openai_report(combined_markdown: str,
 def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
     """
     Poll remote branches on origin and ask the user which to evaluate.
-    For each accepted branch, also prompt for a spec path.
-
-    The user can hit Ctrl+C when done adding branches to proceed to analysis.
+    After adding each branch, the user can choose to start analysis right away,
+    or keep waiting for more branches. Ctrl+C also proceeds to analysis.
     """
     selected: Dict[str, BranchSpec] = {}
     seen_branches: Set[str] = set()
 
     print("\nMonitoring remote branches on 'origin'.")
     print("Whenever a new branch appears, you'll be asked if you want to track it.")
+    print("After adding a branch you can start analysis immediately or keep waiting for more.")
     print("Press Ctrl+C when you're ready to stop monitoring and generate the report.\n")
 
     try:
@@ -516,13 +523,15 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
             for branch in new_branches:
                 print(f"New branch detected: {branch}")
                 if ask_yes_no(f"Add branch '{branch}' to the evaluation set?", default=True):
-                    spec_path, spec_content = prompt_for_spec_path(branch)
-                    selected[branch] = BranchSpec(
-                        name=branch,
-                        spec_path=spec_path,
-                        spec_content=spec_content,
-                    )
+                    selected[branch] = BranchSpec(name=branch)
                     print(f"Branch '{branch}' added to evaluation set.\n")
+
+                    if ask_yes_no(
+                        "Start analysis now? (Otherwise I'll keep monitoring for more branches.)",
+                        default=False,
+                    ):
+                        print("\nStarting analysis with the current set of branches...\n")
+                        return selected
                 else:
                     print(f"Skipping branch '{branch}'.\n")
 
@@ -551,7 +560,14 @@ def main() -> None:
     print("  4) Build a combined markdown with specs + branches.")
     print("  5) Ask OpenAI which branch best matches the spec.\n")
 
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("Error: OPENAI_API_KEY is not set in your environment.")
+        print("Please run: export OPENAI_API_KEY='sk-...'\nThen re-run multi-codex.")
+        sys.exit(1)
+
     repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
+
+    spec_path, spec_content = prompt_for_project_spec()
 
     repo_slug = slugify_repo_url(repo_url)
     repo_path, report_path = ensure_app_dirs(repo_slug)
@@ -582,7 +598,7 @@ def main() -> None:
         print(f"  -> Branch markdown saved to: {branch_md_path}")
 
     # Combined markdown
-    combined_md = build_combined_markdown(branch_specs, branch_markdown)
+    combined_md = build_combined_markdown(spec_path, spec_content, branch_markdown)
     combined_md_path = os.path.join(report_path, "combined_spec_and_branches.md")
 
     with open(combined_md_path, "w", encoding="utf-8") as f:
