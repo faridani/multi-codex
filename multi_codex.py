@@ -18,9 +18,10 @@ Optional:
 """
 
 import os
+import shutil
+import subprocess
 import sys
 import time
-import subprocess
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
@@ -29,6 +30,7 @@ from typing import Dict, List, Optional, Set
 # -----------------------
 
 APP_DIR_NAME = ".multi_codex"
+CHATGPT_URL = "https://chatgpt.com"
 
 POLL_INTERVAL_SECONDS = 30  # how often to poll for new branches
 MAX_FILE_SIZE_BYTES = 200 * 1024  # skip files larger than 200KB
@@ -44,39 +46,38 @@ IGNORED_DIRS = {
     ".vscode",
 }
 
-BANNER = r"""
-░███     ░███            ░██    ░██    ░██                             ░██                       
-░████   ░████            ░██    ░██                                    ░██                       
-░██░██ ░██░██ ░██    ░██ ░██ ░████████ ░██ ░███████   ░███████   ░████████  ░███████  ░██    ░██ 
-░██ ░████ ░██ ░██    ░██ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██    ░██ ░██    ░██  ░██  ░██  
-░██  ░██  ░██ ░██    ░██ ░██    ░██    ░██░██        ░██    ░██ ░██    ░██ ░█████████   ░█████   
-░██       ░██ ░██   ░███ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██   ░███ ░██         ░██  ░██  
-░██       ░██  ░█████░██ ░██     ░████ ░██ ░███████   ░███████   ░█████░██  ░███████  ░██    ░██ 
-                                                                                                 
-                                                                                                 
-                                                                                                 
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+CYAN = "\033[96m"
+MAGENTA = "\033[95m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
 
-Multi-branch code evaluator for GitHub repos.
+BANNER = rf"""
+{MAGENTA}░███     ░███            ░██    ░██    ░██                             ░██
+░████   ░████            ░██    ░██                                    ░██
+░██░██ ░██░██ ░██    ░██ ░██ ░████████ ░██ ░███████   ░███████   ░████████  ░███████  ░██    ░██
+░██ ░████ ░██ ░██    ░██ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██    ░██ ░██    ░██  ░██  ░██
+░██  ░██  ░██ ░██    ░██ ░██    ░██    ░██░██        ░██    ░██ ░██    ░██ ░█████████   ░█████
+░██       ░██ ░██   ░███ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██   ░███ ░██         ░██  ░██
+░██       ░██  ░█████░██ ░██     ░████ ░██ ░███████   ░███████   ░█████░██  ░███████  ░██    ░██{RESET}
+
+{CYAN}{BOLD}Multi-branch code evaluator for GitHub repos.{RESET}
 """
 
 INSTRUCTION_PROMPT = (
-    "You are an expert software architect.\n"
-    "You will be given a combined markdown document that contains:\n"
-    "1) Specifications / design docs / prompts.\n"
-    "2) Multiple branches of a GitHub repository, including file paths and file contents.\n"
+    "You are an expert software architect and reviewer.\n"
+    "You will receive a combined markdown document containing:\n"
+    "1) Product specifications, design docs, or prompts.\n"
+    "2) Multiple Git branches with file paths and file contents.\n"
     "\n"
-    "Your tasks:\n"
-    "- Infer a clear list of key features/requirements from the specification section.\n"
-    "- Construct a MARKDOWN TABLE where:\n"
-    "  - Rows are features.\n"
-    "  - Columns are the branch names.\n"
-    "  - Each cell is 'Yes' or 'No' indicating whether that branch implements that feature.\n"
-    "- Base your answer on the branch contents – do not speculate without evidence.\n"
-    "- After the table, write:\n"
-    "  1) A short explanation of how you chose the 'best' branch.\n"
-    "  2) Explicitly name the single best branch.\n"
-    "  3) List the features that the best branch is still missing or only partially implements.\n"
-    "Use concise language."
+    "Your mission:\n"
+    "- Derive a clear list of features/requirements from the specification.\n"
+    "- Build a MARKDOWN TABLE where rows are features and columns are branch names, with 'Yes' or 'No' indicating implementation based on evidence in the code.\n"
+    "- Identify which branch is the strongest overall and briefly justify the choice.\n"
+    "- Call out ideas or implementations in other branches that the best branch is missing or only partially covers so they can be merged.\n"
+    "Use crisp, confident language."
 )
 
 
@@ -98,6 +99,12 @@ class BranchSpec:
 def print_banner() -> None:
     """Print a nice banner."""
     print(BANNER)
+
+
+def print_section(title: str) -> None:
+    """Print a styled section header."""
+    bar = f"{DIM}{'-' * 60}{RESET}"
+    print(f"\n{bar}\n{BOLD}{title}{RESET}\n{bar}")
 
 
 def input_non_empty(prompt: str) -> str:
@@ -394,6 +401,36 @@ def print_saved_file(label: str, path: str) -> None:
     print(f"{label}: {path}")
 
 
+def copy_to_clipboard(text: str) -> bool:
+    """
+    Attempt to copy text to the system clipboard.
+
+    Returns True on success, False otherwise.
+    """
+    if sys.platform == "darwin" and shutil.which("pbcopy"):
+        try:
+            subprocess.run(["pbcopy"], input=text, text=True, check=True)
+            return True
+        except subprocess.SubprocessError:
+            return False
+
+    if os.name == "nt" and shutil.which("clip"):
+        try:
+            subprocess.run(["clip"], input=text, text=True, check=True)
+            return True
+        except subprocess.SubprocessError:
+            return False
+
+    if shutil.which("xclip"):
+        try:
+            subprocess.run(["xclip", "-selection", "clipboard"], input=text, text=True, check=True)
+            return True
+        except subprocess.SubprocessError:
+            return False
+
+    return False
+
+
 def build_document_body(spec_path: Optional[str],
                         spec_content: str,
                         branch_markdown: Dict[str, str]) -> str:
@@ -475,25 +512,32 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
             new_branches = sorted(remote_branches - seen_branches)
 
             for branch in new_branches:
-                print(f"\033[32m●\033[0m \033[97mNew branch detected:\033[0m \033[90m{branch}\033[0m")
+                print(f"{GREEN}●{RESET} {BOLD}New branch detected:{RESET} {DIM}{branch}{RESET}")
                 add_prompt = (
-                    f"\033[32m●\033[0m \033[97mAdd branch\033[0m "
-                    f"\033[90m'{branch}' to the evaluation set?\033[0m"
+                    f"{GREEN}●{RESET} {BOLD}Add branch{RESET} {DIM}'{branch}' to the evaluation set?{RESET}"
                 )
-                if ask_yes_no(add_prompt, default=True, suffix=" \033[90m[Y/n]:\033[0m "):
+                if ask_yes_no(add_prompt, default=True, suffix=f" {DIM}[Y/n]:{RESET} "):
                     selected[branch] = BranchSpec(name=branch)
                     print(f"Branch '{branch}' added to evaluation set.\n")
 
                     if ask_yes_no(
-                        "\033[32m●\033[0m \033[97mStart analysis now?\033[0m "
-                        "\033[90m(Otherwise I'll keep monitoring for more branches.)\033[0m",
+                        f"{GREEN}●{RESET} {BOLD}Start analysis now?{RESET} "
+                        f"{DIM}(Otherwise I'll keep monitoring for more branches.){RESET}",
                         default=False,
-                        suffix=" \033[90m[yes/ press enter for No]:\033[0m ",
+                        suffix=f" {DIM}[yes/ press enter for No]:{RESET} ",
                     ):
                         print("\nStarting analysis with the current set of branches...\n")
                         return selected
                 else:
-                    print(f"Skipping branch '{branch}'.\n")
+                    print(f"{YELLOW}Skipping branch '{branch}'.{RESET}\n")
+                    prompt = (
+                        f"{GREEN}●{RESET} {BOLD}Start analysis with the already-selected branches?{RESET}"
+                        if selected
+                        else f"{GREEN}●{RESET} {BOLD}Start analysis now?{RESET}"
+                    )
+                    if ask_yes_no(prompt, default=False):
+                        print("\nStarting analysis with the current set of branches...\n")
+                        return selected
 
             seen_branches = remote_branches
 
@@ -512,14 +556,16 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
 def main() -> None:
     print_banner()
 
-    print("Welcome to multi-codex.")
-    print("This tool will:")
-    print("  1) Monitor a GitHub repository for new branches.")
-    print("  2) Ask which branches to evaluate and where your spec lives.")
-    print("  3) Generate markdown files for each branch.")
-    print("  4) Build a combined markdown with specs + branches that you can paste into an AI UI.\n")
+    print(f"{BOLD}Welcome to multi-codex.{RESET} {DIM}(Multi-branch evaluator for AI-generated code){RESET}\n")
+    print_section("How it works")
+    print(
+        " 1) Monitor your GitHub repository for new branches (ideal after Codex makes multiple PRs).\n"
+        " 2) Ask which branches to evaluate and where your spec/design doc lives.\n"
+        " 3) Generate polished markdown snapshots for each branch.\n"
+        " 4) Build a combined analysis prompt you can paste into ChatGPT to choose the best branch and harvest ideas.\n"
+    )
 
-    repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
+    repo_url = input_non_empty(f"{CYAN}Enter your GitHub repository URL (HTTPS or SSH): {RESET}")
 
     spec_path, spec_content = prompt_for_project_spec()
 
@@ -564,6 +610,20 @@ def main() -> None:
     print("\nCombined markdown saved to:")
     print_saved_file("  -> Path", combined_prompt_path)
     print("  (Contents intentionally not printed to avoid console noise)\n")
+
+    copied = copy_to_clipboard(combined_prompt)
+    if copied:
+        print(f"{GREEN}✓{RESET} The combined prompt has been copied to your clipboard.")
+    else:
+        print(
+            f"{YELLOW}!{RESET} Could not copy to clipboard automatically. "
+            "Open the file and copy its contents manually."
+        )
+
+    print(
+        f"Open {CHATGPT_URL} and paste the combined prompt to compare branches. "
+        "If your browser supports it, use Cmd/Ctrl+V right after opening."
+    )
 
     print("Done ✅")
     print("You can open the markdown files in your editor to inspect:")
