@@ -1,6 +1,6 @@
 # multi-codex
 
-Multi-codex is a Mac CLI companion for the "four ideas, four branches" workflow. Tools like Codex can produce up to four different solutions for the same feature. Multi-codex helps you compare those solutions, decide which is best, and spot the smart ideas hiding in the other branches so you can fold them into the winner. The typical flow:
+Multi-codex is a Mac CLI companion for multi solution coding workflows. Tools like Codex allow you to produce up to four different solutions for the same feature. Multi-codex helps you compare those solutions, decide which is best, and spot the smart ideas hiding in the other branches so you can fold them into the winner. The typical flow:
 
 1. Ask Codex at `chatgpt.com/codex` for four solutions to your feature.
 2. Open pull requests for each solution so Codex produces four branches.
