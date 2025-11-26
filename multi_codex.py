@@ -469,20 +469,47 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
 
 def copy_to_clipboard(text: str) -> bool:
     """
-    Attempt to copy text to the macOS clipboard using pbcopy.
+    Attempt to copy text to the clipboard on macOS, Windows, or Linux.
     Returns True if successful.
     """
-    if sys.platform != "darwin":
-        return False
+    platform = sys.platform
 
-    if shutil.which("pbcopy") is None:
-        return False
+    if platform == "darwin":
+        if shutil.which("pbcopy") is None:
+            return False
+        try:
+            subprocess.run(["pbcopy"], input=text, text=True, check=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
 
-    try:
-        subprocess.run(["pbcopy"], input=text, text=True, check=True)
-        return True
-    except subprocess.CalledProcessError:
-        return False
+    if platform.startswith("win"):
+        # Windows built-in clipboard command
+        if shutil.which("clip") is None:
+            return False
+        try:
+            subprocess.run(["clip"], input=text, text=True, check=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    if platform.startswith("linux"):
+        # Prefer wl-copy (Wayland), fall back to xclip (X11)
+        if shutil.which("wl-copy") is not None:
+            try:
+                subprocess.run(["wl-copy"], input=text, text=True, check=True)
+                return True
+            except subprocess.CalledProcessError:
+                return False
+
+        if shutil.which("xclip") is not None:
+            try:
+                subprocess.run(["xclip", "-selection", "clipboard"], input=text, text=True, check=True)
+                return True
+            except subprocess.CalledProcessError:
+                return False
+
+    return False
 
 
 # -----------------------
