@@ -530,10 +530,11 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
                     f"{color_text('New branch detected:', 'magenta', bold=True)} "
                     f"{color_text(branch, 'grey')}"
                 )
+                branch_label = f"'{branch}'"
                 add_prompt = (
                     f"{color_text('●', 'green')} "
                     f"{color_text('Add', 'magenta', bold=True)} "
-                    f"{color_text(f"'{branch}'", 'grey')} "
+                    f"{color_text(branch_label, 'grey')} "
                     f"{color_text('to the evaluation lineup?', 'grey')}"
                 )
                 if ask_yes_no(add_prompt, default=True, suffix=f" {color_text('[Y/n]:', 'grey')} "):
