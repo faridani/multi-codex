@@ -90,6 +90,19 @@ INSTRUCTION_PROMPT = (
     "Be crisp and evidence-driven."
 )
 
+ARCHITECTURE_PROMPT = (
+    "You are a skilled software architect. Below you are given the information about a"
+    " branch of a software project. Produce a detailed report of the architecture of"
+    " this software."
+)
+
+BRANCH_IMPROVEMENT_PROMPT = (
+    "You are reviewing a software branch. Suggest features to add, analyze the code for"
+    " security and safety flaws, propose potential tests, highlight flimsy areas,"
+    " suggest modernization ideas, and include any other insights that help the user"
+    " understand the codebase."
+)
+
 
 # -----------------------
 # Data structures
@@ -273,6 +286,33 @@ def get_remote_branch_names(repo_path: str) -> Set[str]:
         branches.add(name)
 
     return branches
+
+
+def prompt_for_branch_choice(remote_branches: Set[str], prompt_label: str) -> Optional[str]:
+    """
+    Present a numbered list of branches and return the selected branch name.
+    """
+    if not remote_branches:
+        print("No remote branches found to select from.")
+        return None
+
+    sorted_branches = sorted(remote_branches)
+    print(f"\n{prompt_label}")
+    for idx, branch in enumerate(sorted_branches, start=1):
+        print(f"  {idx}. {branch}")
+
+    while True:
+        choice = input("Enter the number of the branch to analyze: ").strip()
+        if not choice.isdigit():
+            print("Please enter a valid number.\n")
+            continue
+
+        idx = int(choice)
+        if idx < 1 or idx > len(sorted_branches):
+            print("Choice out of range. Try again.\n")
+            continue
+
+        return sorted_branches[idx - 1]
 
 
 def prompt_for_project_spec() -> (Optional[str], str):
@@ -467,6 +507,22 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     return "\n".join(parts)
 
 
+def build_single_branch_prompt(system_prompt: str, branch_name: str, branch_markdown: str) -> str:
+    """Wrap a single branch markdown with a system prompt and markers."""
+    parts = [
+        system_prompt,
+        "",
+        "Here is the branch content for analysis:",
+        f"Branch selected: `{branch_name}`.",
+        "",
+        "---------------- BEGIN BRANCH CONTENT ----------------",
+        branch_markdown.rstrip(),
+        "---------------- END BRANCH CONTENT ----------------",
+    ]
+
+    return "\n".join(parts)
+
+
 def copy_to_clipboard(text: str) -> bool:
     """
     Attempt to copy text to the clipboard on macOS, Windows, or Linux.
@@ -510,6 +566,28 @@ def copy_to_clipboard(text: str) -> bool:
                 return False
 
     return False
+
+
+def generate_branch_prompt_file(
+    repo_path: str,
+    report_path: str,
+    branch_name: str,
+    system_prompt: str,
+    file_prefix: str,
+) -> str:
+    """Collect branch markdown, wrap with a system prompt, and save to disk."""
+
+    md_text = collect_branch_markdown(repo_path, branch_name)
+    combined_prompt = build_single_branch_prompt(system_prompt, branch_name, md_text)
+
+    branch_slug = slugify_branch_name(branch_name)
+    output_path = os.path.join(report_path, f"{file_prefix}_{branch_slug}.md")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(combined_prompt)
+
+    print_saved_file("Prompt saved to", output_path)
+    return output_path
 
 
 # -----------------------
@@ -624,39 +702,10 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
     return selected
 
 
-def main() -> None:
-    print_banner()
-
-    intro = textwrap.dedent(
-        """
-        Multi-codex is your branch evaluator for Codex-style multi-solution workflows.
-        Ask Codex for up to four different solutions, push each as its own branch, and let multi-codex
-        gather them into a single, AI-ready brief. It highlights what each branch does well and what
-        the winning branch should borrow from the others—all without calling the OpenAI API or adding
-        surprise costs.
-        """
-    ).strip()
-    print(color_text(intro, "grey"))
-
-    print(color_text("\nWhat I will do for you:", "magenta", bold=True))
-    steps = [
-        "Monitor your GitHub repository for new branches in real time.",
-        "Guide you through selecting the branches and attaching your spec or design doc.",
-        "Generate rich markdown snapshots for every branch you pick.",
-        "Assemble a polished, single prompt you can paste straight into your AI UI for comparison.",
-    ]
-    for idx, step in enumerate(steps, 1):
-        print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(step, 'grey')}")
-    print()
-
-    repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
+def run_branch_comparison(repo_path: str, report_path: str) -> None:
+    """Existing multi-codex comparison flow (option 2)."""
 
     spec_path, spec_content = prompt_for_project_spec()
-
-    repo_slug = slugify_repo_url(repo_url)
-    repo_path, report_path = ensure_app_dirs(repo_slug)
-
-    ensure_local_clone(repo_url, repo_path)
 
     # Monitor new branches and let user choose which ones to evaluate
     branch_specs = monitor_branches(repo_path)
@@ -722,6 +771,78 @@ def main() -> None:
     print(color_text("You can open the markdown files in your editor to inspect:", "grey"))
     print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
     print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
+
+
+def main() -> None:
+    print_banner()
+
+    intro = textwrap.dedent(
+        """
+        Multi-codex is your branch evaluator for Codex-style multi-solution workflows.
+        Ask Codex for up to four different solutions, push each as its own branch, and let multi-codex
+        gather them into a single, AI-ready brief. It highlights what each branch does well and what
+        the winning branch should borrow from the others—all without calling the OpenAI API or adding
+        surprise costs.
+        """
+    ).strip()
+    print(color_text(intro, "grey"))
+
+    print(color_text("\nWhat I will do for you:", "magenta", bold=True))
+    steps = [
+        "Monitor your GitHub repository for new branches in real time.",
+        "Guide you through selecting the branches and attaching your spec or design doc.",
+        "Generate rich markdown snapshots for every branch you pick.",
+        "Assemble a polished, single prompt you can paste straight into your AI UI for comparison.",
+    ]
+    for idx, step in enumerate(steps, 1):
+        print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(step, 'grey')}")
+    print()
+
+    repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
+
+    repo_slug = slugify_repo_url(repo_url)
+    repo_path, report_path = ensure_app_dirs(repo_slug)
+
+    ensure_local_clone(repo_url, repo_path)
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+
+    print(color_text("\nWhat would you like to do today?", "magenta", bold=True))
+    print("  1) Analyze the architecture of a branch and produce a report")
+    print("  2) Compare branches and select the best one")
+    print("  3) Analyze a branch for improvements, security, and testing insights")
+
+    choice = ""
+    while choice not in {"1", "2", "3"}:
+        choice = input("Select an option (1-3): ").strip()
+
+    if choice == "1":
+        branches = get_remote_branch_names(repo_path)
+        branch_name = prompt_for_branch_choice(branches, "Select a branch for architectural analysis:")
+        if branch_name:
+            print("\nGenerating architectural report...\n")
+            generate_branch_prompt_file(
+                repo_path,
+                report_path,
+                branch_name,
+                ARCHITECTURE_PROMPT,
+                "architecture_report",
+            )
+            print(color_text("\nDone ✅", "green", bold=True))
+    elif choice == "2":
+        run_branch_comparison(repo_path, report_path)
+    else:
+        branches = get_remote_branch_names(repo_path)
+        branch_name = prompt_for_branch_choice(branches, "Select a branch for deep analysis:")
+        if branch_name:
+            print("\nGenerating branch improvement analysis...\n")
+            generate_branch_prompt_file(
+                repo_path,
+                report_path,
+                branch_name,
+                BRANCH_IMPROVEMENT_PROMPT,
+                "branch_improvement",
+            )
+            print(color_text("\nDone ✅", "green", bold=True))
 
 
 if __name__ == "__main__":
