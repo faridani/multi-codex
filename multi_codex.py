@@ -90,6 +90,26 @@ INSTRUCTION_PROMPT = (
     "Be crisp and evidence-driven."
 )
 
+ARCHITECTURE_PROMPT = (
+    "You are an expert software architect.\n"
+    "You will receive a markdown document that contains GitHub branch content.\n"
+    "\n"
+    "Your mission:\n"
+    "- Produce an architecture report that summarizes key components, data flow, dependencies, and integrations.\n"
+    "- Call out strengths, risks, scalability or maintainability concerns, and notable design decisions.\n"
+    "- Keep recommendations actionable and base every observation on evidence in the provided code. Avoid speculation."
+)
+
+SECURITY_PROMPT = (
+    "You are a senior security engineer and feature reviewer.\n"
+    "You will receive a markdown document that contains GitHub branch content.\n"
+    "\n"
+    "Your mission:\n"
+    "- Identify security weaknesses (auth, data handling, secrets, dependency risks, unsafe patterns) with evidence.\n"
+    "- Summarize implemented features and notable gaps you observe in the branch.\n"
+    "- Recommend prioritized fixes and hardening steps. Keep the report concise and evidence-based."
+)
+
 
 # -----------------------
 # Data structures
@@ -130,6 +150,26 @@ def input_non_empty(prompt: str) -> str:
         if value:
             return value
         print("Please enter a non-empty value.\n")
+
+
+def prompt_for_workflow_choice() -> str:
+    """Prompt for the workflow type until a valid numbered option is chosen."""
+    options = {
+        "1": "architecture",
+        "2": "comparison",
+        "3": "security",
+    }
+
+    print(color_text("Choose what you want to generate:", "magenta", bold=True))
+    print(f"  1) {color_text('Architecture report for a single branch', 'grey')}")
+    print(f"  2) {color_text('Multi-branch comparison (existing workflow)', 'grey')}")
+    print(f"  3) {color_text('Security/feature review for a single branch', 'grey')}\n")
+
+    while True:
+        choice = input("Enter 1, 2, or 3: ").strip()
+        if choice in options:
+            return options[choice]
+        print("Invalid choice. Please enter 1, 2, or 3.\n")
 
 
 def ask_yes_no(prompt: str, default: bool = False, suffix: Optional[str] = None) -> bool:
@@ -446,7 +486,12 @@ def build_document_body(spec_path: Optional[str],
     return "\n".join(parts)
 
 
-def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
+def build_final_prompt(
+    document_body: str,
+    branch_names: List[str],
+    instruction_prompt: str = INSTRUCTION_PROMPT,
+    branch_line_intro: str = "The branches to compare are",
+) -> str:
     """
     Build the single, copy-paste-ready prompt (instructions + document body).
     The first line is the system-style instruction required by the user.
@@ -454,10 +499,10 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     branches_display = ", ".join(f"`{name}`" for name in branch_names) if branch_names else "None"
 
     parts: List[str] = [
-        INSTRUCTION_PROMPT,
+        instruction_prompt,
         "",
         "Here is the combined specification and branch content markdown.",
-        f"The branches to compare are: {branches_display}.",
+        f"{branch_line_intro}: {branches_display}.",
         "",
         "---------------- BEGIN DOCUMENT ----------------",
         document_body.rstrip(),
@@ -515,6 +560,37 @@ def copy_to_clipboard(text: str) -> bool:
 # -----------------------
 # Monitoring & main flow
 # -----------------------
+
+
+def prompt_for_single_branch(repo_path: str) -> Optional[BranchSpec]:
+    """Fetch and prompt the user to pick one branch to evaluate."""
+    try:
+        run_git(repo_path, ["fetch", "origin", "--prune"])
+    except Exception:
+        print("Unable to fetch branches from origin.\n")
+        return None
+
+    remote_branches = sorted(get_remote_branch_names(repo_path))
+    if not remote_branches:
+        print("No remote branches found on origin.\n")
+        return None
+
+    print(color_text("\nSelect a branch to evaluate:", "magenta", bold=True))
+    for idx, branch in enumerate(remote_branches, 1):
+        print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(branch, 'grey')}")
+
+    while True:
+        selection = input("Enter the branch number or name: ").strip()
+        if selection.isdigit():
+            choice_idx = int(selection)
+            if 1 <= choice_idx <= len(remote_branches):
+                branch_name = remote_branches[choice_idx - 1]
+                return BranchSpec(name=branch_name)
+        elif selection in remote_branches:
+            return BranchSpec(name=selection)
+
+        print("Invalid selection. Please enter a listed number or branch name.\n")
+
 
 def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
     """
@@ -651,15 +727,25 @@ def main() -> None:
 
     repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
 
-    spec_path, spec_content = prompt_for_project_spec()
+    workflow_choice = prompt_for_workflow_choice()
+
+    spec_path: Optional[str] = None
+    spec_content = ""
 
     repo_slug = slugify_repo_url(repo_url)
     repo_path, report_path = ensure_app_dirs(repo_slug)
 
     ensure_local_clone(repo_url, repo_path)
 
+    if workflow_choice == "comparison":
+        spec_path, spec_content = prompt_for_project_spec()
+
     # Monitor new branches and let user choose which ones to evaluate
-    branch_specs = monitor_branches(repo_path)
+    if workflow_choice == "comparison":
+        branch_specs = monitor_branches(repo_path)
+    else:
+        single_branch = prompt_for_single_branch(repo_path)
+        branch_specs = {single_branch.name: single_branch} if single_branch else {}
 
     if not branch_specs:
         print("No branches were selected for evaluation. Exiting.")
@@ -684,8 +770,22 @@ def main() -> None:
     document_body = build_document_body(spec_path, spec_content, branch_markdown)
     branch_names_sorted = sorted(branch_specs.keys())
 
+    instruction_prompt = INSTRUCTION_PROMPT
+    branch_line_intro = "The branches to compare are"
+    if workflow_choice == "architecture":
+        instruction_prompt = ARCHITECTURE_PROMPT
+        branch_line_intro = "The branch to review is"
+    elif workflow_choice == "security":
+        instruction_prompt = SECURITY_PROMPT
+        branch_line_intro = "The branch to review is"
+
     # Combined markdown prompt (ready to paste into AI UI)
-    combined_prompt = build_final_prompt(document_body, branch_names_sorted)
+    combined_prompt = build_final_prompt(
+        document_body,
+        branch_names_sorted,
+        instruction_prompt=instruction_prompt,
+        branch_line_intro=branch_line_intro,
+    )
     combined_prompt_path = os.path.join(report_path, "combined_spec_and_branches.md")
 
     with open(combined_prompt_path, "w", encoding="utf-8") as f:
