@@ -90,19 +90,21 @@ INSTRUCTION_PROMPT = (
     "Be crisp and evidence-driven."
 )
 
-ARCHITECTURE_SYSTEM_PROMPT = textwrap.dedent(
-    """
-    You are a skilled software architect. Below you are given the information about a branch of a software.
-    Produce a detailed report of the architecture of this software.
-    """
-).strip()
-
-FEATURES_SECURITY_SYSTEM_PROMPT = textwrap.dedent(
-    """
-    You are a versatile software expert. Below you are given the code of a branch in a software project.
-    Suggest new features, analyze the code for security and safety flaws, propose potential tests, highlight flimsy pieces of the system, suggest modernization ideas, and anything else that can help the user understand the codebase.
-    """
-).strip()
+AI_PROMPT_CONFIG: Dict[str, str] = {
+    "branch_comparison": INSTRUCTION_PROMPT,
+    "arch_deep_dive": textwrap.dedent(
+        """
+        You are a skilled software architect. Below you are given the information about a branch of a software.
+        Produce a detailed report of the architecture of this software.
+        """
+    ).strip(),  # NOTE: Original spec text included the typo "architech"; the prompt intentionally corrects it.
+    "feature_security_analysis": textwrap.dedent(
+        """
+        You are a versatile software expert. Below you are given the code of a branch in a software project.
+        Suggest new features, analyze the code for security and safety flaws, propose potential tests, highlight flimsy pieces of the system, suggest modernization ideas, and anything else that can help the user understand the codebase.
+        """
+    ).strip(),
+}
 
 
 # -----------------------
@@ -289,6 +291,33 @@ def choose_from_list(options: List[str], prompt: str) -> str:
         print("Choice out of range. Please try again.\n")
 
 
+def select_branch(branches: List[str], prompt: str) -> Optional[str]:
+    """Allow branch selection by index or name with validation."""
+    if not branches:
+        raise ValueError("No branches available for selection")
+
+    while True:
+        print(prompt)
+        for idx, branch in enumerate(branches, 1):
+            print(f"  {idx}. {branch}")
+
+        choice = input("Select a branch by number or name (or press Enter to cancel): ").strip()
+        if not choice:
+            return None
+
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(branches):
+                return branches[idx - 1]
+            print("Invalid branch number. Please choose a listed option.\n")
+            continue
+
+        if choice in branches:
+            return choice
+
+        print("Branch not recognized. Enter a listed number or an exact branch name.\n")
+
+
 def get_remote_branch_names(repo_path: str) -> Set[str]:
     """
     Return a set of remote branch names (without the 'origin/' prefix).
@@ -320,7 +349,12 @@ def prompt_for_branch_selection(repo_path: str, action_label: str) -> str:
         print("No remote branches found on origin. Exiting.")
         sys.exit(1)
 
-    return choose_from_list(branches, f"Select the branch to {action_label}:")
+    choice = select_branch(branches, f"Select the branch to {action_label}:")
+    if choice is None:
+        print("No branch selected. Exiting.")
+        sys.exit(1)
+
+    return choice
 
 
 def prompt_for_project_spec() -> (Optional[str], str):
@@ -515,7 +549,7 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     branches_display = ", ".join(f"`{name}`" for name in branch_names) if branch_names else "None"
 
     parts: List[str] = [
-        INSTRUCTION_PROMPT,
+        AI_PROMPT_CONFIG["branch_comparison"],
         "",
         "Here is the combined specification and branch content markdown.",
         f"The branches to compare are: {branches_display}.",
@@ -729,7 +763,9 @@ def main() -> None:
         branch_name = prompt_for_branch_selection(repo_path, "analyze for architecture")
         print(f"\nPreparing architectural report for branch: {branch_name}\n")
         branch_markdown = collect_branch_markdown(repo_path, branch_name)
-        combined_prompt = build_single_branch_prompt(ARCHITECTURE_SYSTEM_PROMPT, branch_markdown)
+        combined_prompt = build_single_branch_prompt(
+            AI_PROMPT_CONFIG["arch_deep_dive"], branch_markdown
+        )
 
         branch_slug = slugify_branch_name(branch_name)
         output_path = os.path.join(report_path, f"architecture_report_{branch_slug}.md")
@@ -814,7 +850,9 @@ def main() -> None:
         branch_name = prompt_for_branch_selection(repo_path, "analyze for features and security")
         print(f"\nPreparing feature and security analysis for branch: {branch_name}\n")
         branch_markdown = collect_branch_markdown(repo_path, branch_name)
-        combined_prompt = build_single_branch_prompt(FEATURES_SECURITY_SYSTEM_PROMPT, branch_markdown)
+        combined_prompt = build_single_branch_prompt(
+            AI_PROMPT_CONFIG["feature_security_analysis"], branch_markdown
+        )
 
         branch_slug = slugify_branch_name(branch_name)
         output_path = os.path.join(report_path, f"feature_security_report_{branch_slug}.md")
