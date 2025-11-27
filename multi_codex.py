@@ -90,6 +90,25 @@ INSTRUCTION_PROMPT = (
     "Be crisp and evidence-driven."
 )
 
+ARCHITECTURE_PROMPT = textwrap.dedent(
+    """
+    You are a skilled software architect. Below you are given the information about a
+    branch of a software project. Produce a detailed report of the architecture of
+    this software.
+    """
+).strip()
+
+FEATURE_SECURITY_PROMPT = textwrap.dedent(
+    """
+    You are a seasoned software reviewer. Use the provided branch contents to:
+    - Suggest impactful features that align with the existing architecture.
+    - Analyze the code for security and safety flaws.
+    - Propose potential tests that should be written.
+    - Highlight flimsy or fragile parts of the system.
+    - Recommend modernization opportunities and anything else that helps understand the codebase.
+    """
+).strip()
+
 
 # -----------------------
 # Data structures
@@ -381,6 +400,37 @@ def sync_remote_branch(repo_path: str, branch_name: str) -> None:
     run_git(repo_path, ["checkout", "-q", "-B", branch_name, f"origin/{branch_name}"])
 
 
+def prompt_branch_selection(repo_path: str, action_description: str) -> Optional[str]:
+    """List remote branches and prompt the user to pick one."""
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+    branches = sorted(get_remote_branch_names(repo_path))
+
+    if not branches:
+        print("No remote branches found to select.")
+        return None
+
+    print(f"\nSelect a branch to {action_description}:")
+    for idx, branch in enumerate(branches, 1):
+        print(f"  {idx}) {branch}")
+
+    while True:
+        raw = input("Enter the branch number or name (or press Enter to cancel): ").strip()
+        if not raw:
+            return None
+
+        if raw.isdigit():
+            choice = int(raw)
+            if 1 <= choice <= len(branches):
+                return branches[choice - 1]
+            print("Invalid selection. Please choose a listed number.\n")
+            continue
+
+        if raw in branches:
+            return raw
+
+        print("Branch not found. Please choose again or press Enter to cancel.\n")
+
+
 def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     """
     Check out a branch and turn all (reasonable) files into a big markdown document.
@@ -461,6 +511,19 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
         "",
         "---------------- BEGIN DOCUMENT ----------------",
         document_body.rstrip(),
+        "---------------- END DOCUMENT ----------------",
+    ]
+
+    return "\n".join(parts)
+
+
+def build_single_branch_prompt(system_prompt: str, branch_content: str) -> str:
+    """Build a single-branch document with a system prompt and the branch content."""
+    parts: List[str] = [
+        system_prompt.strip(),
+        "",
+        "---------------- BEGIN DOCUMENT ----------------",
+        branch_content.rstrip(),
         "---------------- END DOCUMENT ----------------",
     ]
 
@@ -624,39 +687,8 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
     return selected
 
 
-def main() -> None:
-    print_banner()
-
-    intro = textwrap.dedent(
-        """
-        Multi-codex is your branch evaluator for Codex-style multi-solution workflows.
-        Ask Codex for up to four different solutions, push each as its own branch, and let multi-codex
-        gather them into a single, AI-ready brief. It highlights what each branch does well and what
-        the winning branch should borrow from the others—all without calling the OpenAI API or adding
-        surprise costs.
-        """
-    ).strip()
-    print(color_text(intro, "grey"))
-
-    print(color_text("\nWhat I will do for you:", "magenta", bold=True))
-    steps = [
-        "Monitor your GitHub repository for new branches in real time.",
-        "Guide you through selecting the branches and attaching your spec or design doc.",
-        "Generate rich markdown snapshots for every branch you pick.",
-        "Assemble a polished, single prompt you can paste straight into your AI UI for comparison.",
-    ]
-    for idx, step in enumerate(steps, 1):
-        print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(step, 'grey')}")
-    print()
-
-    repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
-
+def run_comparison_mode(repo_path: str, report_path: str) -> None:
     spec_path, spec_content = prompt_for_project_spec()
-
-    repo_slug = slugify_repo_url(repo_url)
-    repo_path, report_path = ensure_app_dirs(repo_slug)
-
-    ensure_local_clone(repo_url, repo_path)
 
     # Monitor new branches and let user choose which ones to evaluate
     branch_specs = monitor_branches(repo_path)
@@ -722,6 +754,100 @@ def main() -> None:
     print(color_text("You can open the markdown files in your editor to inspect:", "grey"))
     print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
     print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
+
+
+def run_architecture_report(repo_path: str, report_path: str) -> None:
+    branch_name = prompt_branch_selection(repo_path, "analyze for architecture")
+    if not branch_name:
+        print("No branch selected. Exiting.")
+        return
+
+    print(f"\nProcessing architecture report for branch: {branch_name}")
+    md_text = collect_branch_markdown(repo_path, branch_name)
+    prompt_text = build_single_branch_prompt(ARCHITECTURE_PROMPT, md_text)
+
+    branch_slug = slugify_branch_name(branch_name)
+    output_path = os.path.join(report_path, f"architecture_{branch_slug}.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(prompt_text)
+
+    print(color_text("\nArchitecture report ready:", "magenta", bold=True))
+    print_saved_file("  -> Path", output_path)
+    if copy_to_clipboard(prompt_text):
+        print(color_text("  • Report copied to your clipboard.", "green"))
+    else:
+        print(color_text("  • Copy the report file to your clipboard from the path above.", "yellow"))
+
+
+def run_feature_security_review(repo_path: str, report_path: str) -> None:
+    branch_name = prompt_branch_selection(repo_path, "analyze for feature and security insights")
+    if not branch_name:
+        print("No branch selected. Exiting.")
+        return
+
+    print(f"\nProcessing feature/security review for branch: {branch_name}")
+    md_text = collect_branch_markdown(repo_path, branch_name)
+    prompt_text = build_single_branch_prompt(FEATURE_SECURITY_PROMPT, md_text)
+
+    branch_slug = slugify_branch_name(branch_name)
+    output_path = os.path.join(report_path, f"feature_security_{branch_slug}.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(prompt_text)
+
+    print(color_text("\nFeature and security review ready:", "magenta", bold=True))
+    print_saved_file("  -> Path", output_path)
+    if copy_to_clipboard(prompt_text):
+        print(color_text("  • Review copied to your clipboard.", "green"))
+    else:
+        print(color_text("  • Copy the review file to your clipboard from the path above.", "yellow"))
+
+
+def prompt_main_option() -> str:
+    print(color_text("\nChoose what you want multi-codex to do:", "magenta", bold=True))
+    options = {
+        "1": "Analyze the architecture of the code in a branch and produce an architectural report.",
+        "2": "Compare branches and select the best one (existing pipeline).",
+        "3": "Analyze a branch to suggest features, spot security/safety issues, and propose tests.",
+    }
+
+    for key, description in options.items():
+        print(f"  {color_text(key + ')', 'green', bold=True)} {color_text(description, 'grey')}")
+
+    while True:
+        choice = input("Enter 1, 2, or 3: ").strip()
+        if choice in options:
+            return choice
+        print("Invalid selection. Please enter 1, 2, or 3.\n")
+
+
+def main() -> None:
+    print_banner()
+
+    intro = textwrap.dedent(
+        """
+        Multi-codex is your branch evaluator for Codex-style multi-solution workflows.
+        Ask Codex for up to four different solutions, push each as its own branch, and let multi-codex
+        gather them into AI-ready briefs tailored to your needs—all without calling the OpenAI API or
+        adding surprise costs.
+        """
+    ).strip()
+    print(color_text(intro, "grey"))
+
+    repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
+
+    repo_slug = slugify_repo_url(repo_url)
+    repo_path, report_path = ensure_app_dirs(repo_slug)
+
+    ensure_local_clone(repo_url, repo_path)
+
+    choice = prompt_main_option()
+
+    if choice == "1":
+        run_architecture_report(repo_path, report_path)
+    elif choice == "2":
+        run_comparison_mode(repo_path, report_path)
+    elif choice == "3":
+        run_feature_security_review(repo_path, report_path)
 
 
 if __name__ == "__main__":
