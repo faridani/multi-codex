@@ -412,6 +412,52 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     return "\n".join(lines)
 
 
+def generate_architecture_report(repo_path: str, report_path: str) -> None:
+    """
+    Prompt the user to select a remote branch and create an architecture report for it.
+    """
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+
+    remote_branches = sorted(get_remote_branch_names(repo_path))
+
+    if not remote_branches:
+        print(color_text("No remote branches found to generate an architecture report.", "yellow"))
+        return
+
+    print(color_text("\nAvailable remote branches:", "magenta", bold=True))
+    for idx, branch in enumerate(remote_branches, 1):
+        print(f"  {idx}. {branch}")
+
+    print()
+    selected_branch: Optional[str] = None
+    while selected_branch is None:
+        choice = input("Enter the branch name (or press Enter to cancel): ").strip()
+        if not choice:
+            print(color_text("Skipping architecture report generation.\n", "yellow"))
+            return
+        if choice not in remote_branches:
+            print(color_text("Please enter one of the listed branch names.\n", "yellow"))
+            continue
+        selected_branch = choice
+
+    md_text = collect_branch_markdown(repo_path, selected_branch)
+
+    system_prompt = (
+        "you are a skilled software architech, below you are given the information about a branch of a software, "
+        "produce a detailed report of the architecture of this software"
+    )
+
+    report_content = f"{system_prompt}\n\n{md_text}"
+
+    branch_slug = slugify_branch_name(selected_branch)
+    architecture_report_path = os.path.join(report_path, f"architecture_{branch_slug}.md")
+
+    with open(architecture_report_path, "w", encoding="utf-8") as f:
+        f.write(report_content)
+
+    print_saved_file("  -> Architecture report saved to", architecture_report_path)
+
+
 def print_saved_file(label: str, path: str) -> None:
     """Log saved file paths without printing file contents."""
     print(f"{label}: {path}")
@@ -657,6 +703,13 @@ def main() -> None:
     repo_path, report_path = ensure_app_dirs(repo_slug)
 
     ensure_local_clone(repo_url, repo_path)
+
+    if ask_yes_no(
+        color_text("Would you like to generate an architecture report for a single branch now?", "magenta", bold=True),
+        default=False,
+        suffix=f" {color_text('[y/N]:', 'grey')} ",
+    ):
+        generate_architecture_report(repo_path, report_path)
 
     # Monitor new branches and let user choose which ones to evaluate
     branch_specs = monitor_branches(repo_path)
