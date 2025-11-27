@@ -90,6 +90,20 @@ INSTRUCTION_PROMPT = (
     "Be crisp and evidence-driven."
 )
 
+ARCHITECTURE_SYSTEM_PROMPT = textwrap.dedent(
+    """
+    You are a skilled software architect. Below you are given the information about a branch of a software.
+    Produce a detailed report of the architecture of this software.
+    """
+).strip()
+
+FEATURES_SECURITY_SYSTEM_PROMPT = textwrap.dedent(
+    """
+    You are a versatile software expert. Below you are given the code of a branch in a software project.
+    Suggest new features, analyze the code for security and safety flaws, propose potential tests, highlight flimsy pieces of the system, suggest modernization ideas, and anything else that can help the user understand the codebase.
+    """
+).strip()
+
 
 # -----------------------
 # Data structures
@@ -253,6 +267,28 @@ def ensure_local_clone(repo_url: str, repo_path: str) -> None:
         sys.exit(1)
 
 
+def choose_from_list(options: List[str], prompt: str) -> str:
+    """Prompt the user to select from a numbered list of options."""
+    if not options:
+        raise ValueError("No options provided for selection")
+
+    while True:
+        print(prompt)
+        for idx, option in enumerate(options, 1):
+            print(f"  {idx}. {option}")
+
+        raw = input("Enter the number of your choice: ").strip()
+        if not raw.isdigit():
+            print("Please enter a valid number.\n")
+            continue
+
+        idx = int(raw)
+        if 1 <= idx <= len(options):
+            return options[idx - 1]
+
+        print("Choice out of range. Please try again.\n")
+
+
 def get_remote_branch_names(repo_path: str) -> Set[str]:
     """
     Return a set of remote branch names (without the 'origin/' prefix).
@@ -273,6 +309,18 @@ def get_remote_branch_names(repo_path: str) -> Set[str]:
         branches.add(name)
 
     return branches
+
+
+def prompt_for_branch_selection(repo_path: str, action_label: str) -> str:
+    """Ask the user to pick a branch from the remote list for a single-branch workflow."""
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+    branches = sorted(get_remote_branch_names(repo_path))
+
+    if not branches:
+        print("No remote branches found on origin. Exiting.")
+        sys.exit(1)
+
+    return choose_from_list(branches, f"Select the branch to {action_label}:")
 
 
 def prompt_for_project_spec() -> (Optional[str], str):
@@ -410,6 +458,19 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
             lines.append("")
 
     return "\n".join(lines)
+
+
+def build_single_branch_prompt(system_prompt: str, branch_markdown: str) -> str:
+    """Assemble a single-branch document with a system prompt header."""
+    return "\n".join(
+        [
+            system_prompt.strip(),
+            "",
+            "---------------- BEGIN DOCUMENT ----------------",
+            branch_markdown.rstrip(),
+            "---------------- END DOCUMENT ----------------",
+        ]
+    )
 
 
 def print_saved_file(label: str, path: str) -> None:
@@ -651,77 +712,125 @@ def main() -> None:
 
     repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
 
-    spec_path, spec_content = prompt_for_project_spec()
-
     repo_slug = slugify_repo_url(repo_url)
     repo_path, report_path = ensure_app_dirs(repo_slug)
 
     ensure_local_clone(repo_url, repo_path)
 
-    # Monitor new branches and let user choose which ones to evaluate
-    branch_specs = monitor_branches(repo_path)
+    options = [
+        "Analyze the architecture of a branch and produce an architectural report",
+        "Compare branches and select the best one",
+        "Analyze a branch for features, security, and modernization opportunities",
+    ]
 
-    if not branch_specs:
-        print("No branches were selected for evaluation. Exiting.")
-        return
+    selected_option = choose_from_list(options, "Select the workflow you want to run:")
 
-    # Build per-branch markdowns
-    print("Generating markdown snapshot for each selected branch...\n")
-    branch_markdown: Dict[str, str] = {}
-
-    for branch_name, bs in branch_specs.items():
-        print(f"Processing branch: {branch_name}")
-        md_text = collect_branch_markdown(repo_path, branch_name)
-        branch_markdown[branch_name] = md_text
+    if selected_option == options[0]:
+        branch_name = prompt_for_branch_selection(repo_path, "analyze for architecture")
+        print(f"\nPreparing architectural report for branch: {branch_name}\n")
+        branch_markdown = collect_branch_markdown(repo_path, branch_name)
+        combined_prompt = build_single_branch_prompt(ARCHITECTURE_SYSTEM_PROMPT, branch_markdown)
 
         branch_slug = slugify_branch_name(branch_name)
-        branch_md_path = os.path.join(report_path, f"branch_{branch_slug}.md")
-        with open(branch_md_path, "w", encoding="utf-8") as f:
-            f.write(md_text)
-        bs.branch_markdown_path = branch_md_path
-        print_saved_file("  -> Branch markdown saved to", branch_md_path)
+        output_path = os.path.join(report_path, f"architecture_report_{branch_slug}.md")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
 
-    document_body = build_document_body(spec_path, spec_content, branch_markdown)
-    branch_names_sorted = sorted(branch_specs.keys())
+        print_saved_file("Architectural report saved to", output_path)
+        if copy_to_clipboard(combined_prompt):
+            print(color_text("  • Report copied to clipboard.", "green"))
+        else:
+            print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
 
-    # Combined markdown prompt (ready to paste into AI UI)
-    combined_prompt = build_final_prompt(document_body, branch_names_sorted)
-    combined_prompt_path = os.path.join(report_path, "combined_spec_and_branches.md")
+    elif selected_option == options[1]:
+        spec_path, spec_content = prompt_for_project_spec()
 
-    with open(combined_prompt_path, "w", encoding="utf-8") as f:
-        f.write(combined_prompt)
+        # Monitor new branches and let user choose which ones to evaluate
+        branch_specs = monitor_branches(repo_path)
 
-    print(color_text("\nCombined markdown saved to:", "magenta", bold=True))
-    print_saved_file("  -> Path", combined_prompt_path)
-    print("  (Contents intentionally not printed to avoid console noise)\n")
+        if not branch_specs:
+            print("No branches were selected for evaluation. Exiting.")
+            return
 
-    copied = copy_to_clipboard(combined_prompt)
-    print(color_text("Next step: share with ChatGPT.", "magenta", bold=True))
-    if copied:
+        # Build per-branch markdowns
+        print("Generating markdown snapshot for each selected branch...\n")
+        branch_markdown: Dict[str, str] = {}
+
+        for branch_name, bs in branch_specs.items():
+            print(f"Processing branch: {branch_name}")
+            md_text = collect_branch_markdown(repo_path, branch_name)
+            branch_markdown[branch_name] = md_text
+
+            branch_slug = slugify_branch_name(branch_name)
+            branch_md_path = os.path.join(report_path, f"branch_{branch_slug}.md")
+            with open(branch_md_path, "w", encoding="utf-8") as f:
+                f.write(md_text)
+            bs.branch_markdown_path = branch_md_path
+            print_saved_file("  -> Branch markdown saved to", branch_md_path)
+
+        document_body = build_document_body(spec_path, spec_content, branch_markdown)
+        branch_names_sorted = sorted(branch_specs.keys())
+
+        # Combined markdown prompt (ready to paste into AI UI)
+        combined_prompt = build_final_prompt(document_body, branch_names_sorted)
+        combined_prompt_path = os.path.join(report_path, "combined_spec_and_branches.md")
+
+        with open(combined_prompt_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
+
+        print(color_text("\nCombined markdown saved to:", "magenta", bold=True))
+        print_saved_file("  -> Path", combined_prompt_path)
+        print("  (Contents intentionally not printed to avoid console noise)\n")
+
+        copied = copy_to_clipboard(combined_prompt)
+        print(color_text("Next step: share with ChatGPT.", "magenta", bold=True))
+        if copied:
+            print(
+                color_text(
+                    "  • Combined prompt copied to your clipboard.",
+                    "green",
+                )
+            )
+        else:
+            print(
+                color_text(
+                    "  • Copy the combined prompt file to your clipboard from the path above.",
+                    "yellow",
+                )
+            )
         print(
             color_text(
-                "  • Combined prompt copied to your clipboard.",
-                "green",
+                "  • Open https://chatgpt.com/ and paste the contents into the UI to run the branch analysis.",
+                "grey",
             )
         )
+
+        print(color_text("\nDone ✅", "green", bold=True))
+        print(color_text("You can open the markdown files in your editor to inspect:", "grey"))
+        print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
+        print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
+
     else:
-        print(
-            color_text(
-                "  • Copy the combined prompt file to your clipboard from the path above.",
-                "yellow",
-            )
-        )
-    print(
-        color_text(
-            "  • Open https://chatgpt.com/ and paste the contents into the UI to run the branch analysis.",
-            "grey",
-        )
-    )
+        branch_name = prompt_for_branch_selection(repo_path, "analyze for features and security")
+        print(f"\nPreparing feature and security analysis for branch: {branch_name}\n")
+        branch_markdown = collect_branch_markdown(repo_path, branch_name)
+        combined_prompt = build_single_branch_prompt(FEATURES_SECURITY_SYSTEM_PROMPT, branch_markdown)
 
-    print(color_text("\nDone ✅", "green", bold=True))
-    print(color_text("You can open the markdown files in your editor to inspect:", "grey"))
-    print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
-    print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
+        branch_slug = slugify_branch_name(branch_name)
+        output_path = os.path.join(report_path, f"feature_security_report_{branch_slug}.md")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
+
+        print_saved_file("Feature and security report saved to", output_path)
+        if copy_to_clipboard(combined_prompt):
+            print(color_text("  • Report copied to clipboard.", "green"))
+        else:
+            print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
+
+    if selected_option != options[1]:
+        print(color_text("\nDone ✅", "green", bold=True))
+        print(color_text("You can open the markdown file in your editor or share it with your AI assistant.", "grey"))
+        print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
 
 
 if __name__ == "__main__":
