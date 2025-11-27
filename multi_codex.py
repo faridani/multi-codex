@@ -90,6 +90,18 @@ INSTRUCTION_PROMPT = (
     "Be crisp and evidence-driven."
 )
 
+BRANCH_REVIEW_SYSTEM_PROMPT = textwrap.dedent(
+    """
+    You are an expert AI reviewer. Using the supplied branch markdown, you will:
+    - Suggest features and improvements worth considering.
+    - Analyze security and safety flaws.
+    - Propose tests that should be added.
+    - Flag flimsy or brittle areas.
+    - Recommend modernization opportunities.
+    - Provide any other helpful insights for reviewers.
+    """
+).strip()
+
 
 # -----------------------
 # Data structures
@@ -146,6 +158,21 @@ def ask_yes_no(prompt: str, default: bool = False, suffix: Optional[str] = None)
         return default
 
     return answer in ("y", "yes")
+
+
+def prompt_for_workflow() -> str:
+    """Let the user pick between the monitoring workflow and a one-off branch review."""
+    print(color_text("\nSelect a workflow:", "magenta", bold=True))
+    print(f"  {color_text('1)', 'green', bold=True)} {color_text('Monitor for new branches and build combined prompt', 'grey')}")
+    print(f"  {color_text('2)', 'green', bold=True)} {color_text('List remote branches and review one or more immediately', 'grey')}")
+
+    while True:
+        choice = input(color_text("Choose 1 or 2 [1]: ", "grey")).strip()
+        if choice in ("", "1"):
+            return "monitor"
+        if choice == "2":
+            return "review"
+        print("Invalid choice. Enter 1 or 2.\n")
 
 
 def slugify_repo_url(url: str) -> str:
@@ -273,6 +300,62 @@ def get_remote_branch_names(repo_path: str) -> Set[str]:
         branches.add(name)
 
     return branches
+
+
+def prompt_for_branch_selection(available_branches: List[str]) -> List[str]:
+    """Allow the user to pick one or more branches from a presented list."""
+    if not available_branches:
+        print("No remote branches found.")
+        return []
+
+    print(color_text("\nRemote branches:", "magenta", bold=True))
+    for idx, name in enumerate(available_branches, 1):
+        print(f"  {color_text(str(idx) + '.', 'green', bold=True)} {color_text(name, 'grey')}")
+
+    while True:
+        raw = input(
+            color_text(
+                "Enter branch numbers or names to review (comma-separated), or press Enter to cancel: ",
+                "grey",
+            )
+        ).strip()
+
+        if not raw:
+            return []
+
+        tokens = [token.strip() for token in raw.split(",") if token.strip()]
+        if not tokens:
+            print("Please enter at least one branch or press Enter to cancel.\n")
+            continue
+
+        selected: List[str] = []
+        invalid: List[str] = []
+
+        for token in tokens:
+            if token.isdigit():
+                idx = int(token)
+                if 1 <= idx <= len(available_branches):
+                    branch_name = available_branches[idx - 1]
+                    if branch_name not in selected:
+                        selected.append(branch_name)
+                else:
+                    invalid.append(token)
+            elif token in available_branches:
+                if token not in selected:
+                    selected.append(token)
+            else:
+                invalid.append(token)
+
+        if invalid:
+            print(
+                color_text(
+                    f"Unrecognized selections: {', '.join(invalid)}. Choose numbers from the list or exact branch names.\n",
+                    "yellow",
+                )
+            )
+            continue
+
+        return selected
 
 
 def prompt_for_project_spec() -> (Optional[str], str):
@@ -446,6 +529,22 @@ def build_document_body(spec_path: Optional[str],
     return "\n".join(parts)
 
 
+def build_branch_review_report(branch_name: str, branch_markdown: str) -> str:
+    """Create a branch-only report that starts with the review system prompt."""
+    parts: List[str] = [
+        BRANCH_REVIEW_SYSTEM_PROMPT,
+        "",
+        f"Branch under review: `{branch_name}`",
+        "",
+        "---------------- BEGIN BRANCH MARKDOWN ----------------",
+        branch_markdown.rstrip(),
+        "---------------- END BRANCH MARKDOWN ----------------",
+        "",
+    ]
+
+    return "\n".join(parts)
+
+
 def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     """
     Build the single, copy-paste-ready prompt (instructions + document body).
@@ -515,6 +614,35 @@ def copy_to_clipboard(text: str) -> bool:
 # -----------------------
 # Monitoring & main flow
 # -----------------------
+
+
+def run_branch_review_workflow(repo_path: str, report_path: str) -> None:
+    """List remote branches for selection and generate review markdown files."""
+    print(color_text("\nFetching latest remote branches...", "cyan", bold=True))
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+
+    available_branches = sorted(get_remote_branch_names(repo_path))
+    selected_branches = prompt_for_branch_selection(available_branches)
+
+    if not selected_branches:
+        print("No branches selected for review. Exiting.")
+        return
+
+    print(color_text("\nGenerating branch review reports...", "magenta", bold=True))
+
+    for branch_name in selected_branches:
+        print(f"Reviewing branch: {branch_name}")
+        branch_markdown = collect_branch_markdown(repo_path, branch_name)
+        review_text = build_branch_review_report(branch_name, branch_markdown)
+
+        branch_slug = slugify_branch_name(branch_name)
+        review_path = os.path.join(report_path, f"review_{branch_slug}.md")
+        with open(review_path, "w", encoding="utf-8") as f:
+            f.write(review_text)
+
+        print_saved_file("  -> Branch review saved to", review_path)
+
+    print(color_text("\nBranch review workflow completed.", "green", bold=True))
 
 def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
     """
@@ -651,12 +779,18 @@ def main() -> None:
 
     repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
 
-    spec_path, spec_content = prompt_for_project_spec()
-
     repo_slug = slugify_repo_url(repo_url)
     repo_path, report_path = ensure_app_dirs(repo_slug)
 
     ensure_local_clone(repo_url, repo_path)
+
+    workflow_choice = prompt_for_workflow()
+
+    if workflow_choice == "review":
+        run_branch_review_workflow(repo_path, report_path)
+        return
+
+    spec_path, spec_content = prompt_for_project_spec()
 
     # Monitor new branches and let user choose which ones to evaluate
     branch_specs = monitor_branches(repo_path)
