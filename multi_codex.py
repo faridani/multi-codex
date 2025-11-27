@@ -90,6 +90,20 @@ INSTRUCTION_PROMPT = (
     "Be crisp and evidence-driven."
 )
 
+BRANCH_REVIEW_PROMPT = textwrap.dedent(
+    """
+    You are an expert reviewer assessing a single Git branch.
+    Based solely on the provided files, produce concise markdown that includes:
+    - Feature suggestions tailored to what already exists in the branch.
+    - Security and safety analysis that calls out risks, missing validations, and secret-handling gaps.
+    - Test ideas spanning unit, integration, edge cases, and automation priorities.
+    - Fragility highlights covering brittle areas, tight coupling, or error-handling blind spots.
+    - Modernization advice for refactors, dependency updates, and developer-experience improvements.
+
+    Ground every observation in the evidence from the branch and avoid speculation beyond the code shown.
+    """
+).strip()
+
 
 # -----------------------
 # Data structures
@@ -467,6 +481,67 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     return "\n".join(parts)
 
 
+def select_branch(repo_path: str) -> Optional[str]:
+    """Fetch and list remote branches, then prompt the user to pick one."""
+    try:
+        run_git(repo_path, ["fetch", "origin", "--prune"])
+    except Exception:
+        return None
+
+    branches = sorted(get_remote_branch_names(repo_path))
+
+    if not branches:
+        print(color_text("No remote branches found to review.", "yellow"))
+        return None
+
+    print(color_text("\nAvailable remote branches:", "magenta", bold=True))
+    for idx, name in enumerate(branches, start=1):
+        print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(name, 'grey')}")
+
+    while True:
+        choice = input("Select a branch by number or name (or press Enter to cancel): ").strip()
+        if not choice:
+            return None
+
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(branches):
+                return branches[idx - 1]
+        elif choice in branches:
+            return choice
+
+        print(color_text("Invalid selection. Please try again.", "yellow"))
+
+
+def generate_branch_review(repo_path: str, report_path: str) -> None:
+    """
+    Create a branch review markdown that starts with the review system prompt
+    and includes the selected branch's collected files.
+    """
+    branch_name = select_branch(repo_path)
+    if not branch_name:
+        return
+
+    print(color_text(f"\nCollecting branch review for '{branch_name}'...", "cyan", bold=True))
+    md_text = collect_branch_markdown(repo_path, branch_name)
+
+    review_lines = [
+        BRANCH_REVIEW_PROMPT,
+        "",
+        "---------------- BEGIN BRANCH CONTENT ----------------",
+        md_text.rstrip(),
+        "---------------- END BRANCH CONTENT ----------------",
+    ]
+
+    branch_slug = slugify_branch_name(branch_name)
+    review_path = os.path.join(report_path, f"review_{branch_slug}.md")
+
+    with open(review_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(review_lines))
+
+    print_saved_file("Branch review saved to", review_path)
+
+
 def copy_to_clipboard(text: str) -> bool:
     """
     Attempt to copy text to the clipboard on macOS, Windows, or Linux.
@@ -657,6 +732,13 @@ def main() -> None:
     repo_path, report_path = ensure_app_dirs(repo_slug)
 
     ensure_local_clone(repo_url, repo_path)
+
+    if ask_yes_no(
+        color_text("Would you like to generate a single-branch review report?", "magenta", bold=True),
+        default=False,
+        suffix=f" {color_text('[y/N]:', 'grey')} ",
+    ):
+        generate_branch_review(repo_path, report_path)
 
     # Monitor new branches and let user choose which ones to evaluate
     branch_specs = monitor_branches(repo_path)
