@@ -71,6 +71,11 @@ COLOR = {
     "reset": "\033[0m",
 }
 
+ARCHITECTURE_SYSTEM_PROMPT = (
+    "you are a skilled software architect. Review the following branch snapshot to produce "
+    "architecture insights, risks, and recommendations."
+)
+
 INSTRUCTION_PROMPT = (
     "You are an expert software architect and evaluator.\n"
     "You will receive a combined markdown document that contains:\n"
@@ -467,6 +472,54 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     return "\n".join(parts)
 
 
+def select_remote_branch(repo_path: str) -> Optional[str]:
+    """List remote branches and prompt the user to pick one."""
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+    branches = sorted(get_remote_branch_names(repo_path))
+
+    if not branches:
+        print("No remote branches found.")
+        return None
+
+    print("\nAvailable remote branches:")
+    for idx, name in enumerate(branches, 1):
+        print(f"  {idx}. {name}")
+
+    while True:
+        choice = input("Select a branch by number or name (press Enter to cancel): ").strip()
+        if not choice:
+            return None
+
+        if choice.isdigit():
+            index = int(choice)
+            if 1 <= index <= len(branches):
+                return branches[index - 1]
+        elif choice in branches:
+            return choice
+
+        print("Invalid selection. Please try again.\n")
+
+
+def generate_architecture_snapshot(repo_path: str, report_path: str) -> None:
+    """Create a single-branch architecture markdown snapshot with a system prompt."""
+    branch_name = select_remote_branch(repo_path)
+    if not branch_name:
+        return
+
+    # Ensure the branch is up to date before collecting contents
+    sync_remote_branch(repo_path, branch_name)
+
+    branch_markdown = collect_branch_markdown(repo_path, branch_name)
+    document_parts = [ARCHITECTURE_SYSTEM_PROMPT, "", branch_markdown]
+    branch_slug = slugify_branch_name(branch_name)
+    architecture_path = os.path.join(report_path, f"architecture_{branch_slug}.md")
+
+    with open(architecture_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(document_parts))
+
+    print_saved_file("Architecture snapshot saved", architecture_path)
+
+
 def copy_to_clipboard(text: str) -> bool:
     """
     Attempt to copy text to the clipboard on macOS, Windows, or Linux.
@@ -657,6 +710,9 @@ def main() -> None:
     repo_path, report_path = ensure_app_dirs(repo_slug)
 
     ensure_local_clone(repo_url, repo_path)
+
+    if ask_yes_no("\nGenerate a single-branch architecture snapshot?", default=False):
+        generate_architecture_snapshot(repo_path, report_path)
 
     # Monitor new branches and let user choose which ones to evaluate
     branch_specs = monitor_branches(repo_path)
