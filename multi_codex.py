@@ -624,41 +624,77 @@ def monitor_branches(repo_path: str) -> Dict[str, BranchSpec]:
     return selected
 
 
-def main() -> None:
-    print_banner()
-
-    intro = textwrap.dedent(
-        """
-        Multi-codex is your branch evaluator for Codex-style multi-solution workflows.
-        Ask Codex for up to four different solutions, push each as its own branch, and let multi-codex
-        gather them into a single, AI-ready brief. It highlights what each branch does well and what
-        the winning branch should borrow from the others—all without calling the OpenAI API or adding
-        surprise costs.
-        """
-    ).strip()
-    print(color_text(intro, "grey"))
-
-    print(color_text("\nWhat I will do for you:", "magenta", bold=True))
-    steps = [
-        "Monitor your GitHub repository for new branches in real time.",
-        "Guide you through selecting the branches and attaching your spec or design doc.",
-        "Generate rich markdown snapshots for every branch you pick.",
-        "Assemble a polished, single prompt you can paste straight into your AI UI for comparison.",
-    ]
-    for idx, step in enumerate(steps, 1):
-        print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(step, 'grey')}")
-    print()
-
-    repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
-
-    spec_path, spec_content = prompt_for_project_spec()
-
+def prepare_repository(repo_url: str) -> (str, str, str):
+    """Shared setup for all modes: create directories and ensure clone."""
     repo_slug = slugify_repo_url(repo_url)
     repo_path, report_path = ensure_app_dirs(repo_slug)
-
     ensure_local_clone(repo_url, repo_path)
+    return repo_slug, repo_path, report_path
 
-    # Monitor new branches and let user choose which ones to evaluate
+
+def select_branch(repo_path: str, prompt: str) -> Optional[str]:
+    """List remote branches and prompt the user to choose one."""
+    branches = sorted(get_remote_branch_names(repo_path))
+    if not branches:
+        print("No remote branches found. Please push at least one branch and try again.")
+        return None
+
+    print(prompt)
+    for idx, name in enumerate(branches, 1):
+        print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(name, 'grey')}")
+
+    while True:
+        choice = input("Select a branch by number or name: ").strip()
+        if not choice:
+            print("Please enter a choice.\n")
+            continue
+
+        if choice.isdigit():
+            index = int(choice) - 1
+            if 0 <= index < len(branches):
+                return branches[index]
+        elif choice in branches:
+            return choice
+
+        print("Invalid selection. Please try again.\n")
+
+
+def generate_single_branch_snapshot(repo_path: str, report_path: str, branch_name: str, label: str) -> str:
+    """Collect and save markdown for a single branch."""
+    print(f"Processing branch: {branch_name}")
+    md_text = collect_branch_markdown(repo_path, branch_name)
+    branch_slug = slugify_branch_name(branch_name)
+    branch_md_path = os.path.join(report_path, f"{label}_{branch_slug}.md")
+    with open(branch_md_path, "w", encoding="utf-8") as f:
+        f.write(md_text)
+    print_saved_file("  -> Branch markdown saved to", branch_md_path)
+    return branch_md_path
+
+
+def handle_architecture_deep_dive(repo_path: str, report_path: str) -> None:
+    """Capture a branch snapshot for architecture-focused review."""
+    branch_name = select_branch(
+        repo_path,
+        "\nArchitecture deep-dive: select the branch to unpack in detail:",
+    )
+    if not branch_name:
+        return
+
+    path = generate_single_branch_snapshot(repo_path, report_path, branch_name, "architecture")
+    print(color_text("\nArchitecture deep-dive snapshot ready.", "magenta", bold=True))
+    print(
+        color_text(
+            "Share this markdown with your AI assistant to summarize the codebase structure, key components, and integration points.",
+            "grey",
+        )
+    )
+    print_saved_file("  - Architecture snapshot", path)
+
+
+def handle_branch_comparison(repo_path: str, report_path: str) -> None:
+    """Existing comparison pipeline triggered via option 2."""
+    spec_path, spec_content = prompt_for_project_spec()
+
     branch_specs = monitor_branches(repo_path)
 
     if not branch_specs:
@@ -722,6 +758,71 @@ def main() -> None:
     print(color_text("You can open the markdown files in your editor to inspect:", "grey"))
     print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
     print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
+
+
+def handle_feature_security_review(repo_path: str, report_path: str) -> None:
+    """Capture a branch snapshot to fuel feature and security review."""
+    branch_name = select_branch(
+        repo_path,
+        "\nFeature/security review: select the branch to evaluate for coverage and risks:",
+    )
+    if not branch_name:
+        return
+
+    path = generate_single_branch_snapshot(repo_path, report_path, branch_name, "feature_security")
+    print(color_text("\nFeature/security review snapshot ready.", "magenta", bold=True))
+    print(
+        color_text(
+            "Use this markdown to ask your AI assistant about feature completeness, threat modeling, and remediation steps.",
+            "grey",
+        )
+    )
+    print_saved_file("  - Feature/security snapshot", path)
+
+
+def prompt_mode_selection() -> str:
+    """Ask the user which workflow to run."""
+    print(color_text("\nChoose what you want to do:", "magenta", bold=True))
+    options = [
+        "Architecture deep-dive for a single branch.",
+        "Branch comparison (multi-branch pipeline).",
+        "Branch feature/security review.",
+    ]
+    for idx, option in enumerate(options, 1):
+        print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(option, 'grey')}")
+
+    while True:
+        selection = input("Select an option (1-3): ").strip()
+        if selection in {"1", "2", "3"}:
+            return selection
+        print("Invalid selection. Please choose 1, 2, or 3.\n")
+
+
+def main() -> None:
+    print_banner()
+
+    intro = textwrap.dedent(
+        """
+        Multi-codex is your branch evaluator for Codex-style multi-solution workflows.
+        Ask Codex for up to four different solutions, push each as its own branch, and let multi-codex
+        gather them into AI-ready briefs—whether you need a deep architectural read, a comparison, or a quick feature/security scan.
+        """
+    ).strip()
+    print(color_text(intro, "grey"))
+
+    print(color_text("\nFirst, tell me which GitHub repo to use.", "magenta", bold=True))
+    repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
+
+    _, repo_path, report_path = prepare_repository(repo_url)
+
+    mode = prompt_mode_selection()
+
+    if mode == "1":
+        handle_architecture_deep_dive(repo_path, report_path)
+    elif mode == "2":
+        handle_branch_comparison(repo_path, report_path)
+    elif mode == "3":
+        handle_feature_security_review(repo_path, report_path)
 
 
 if __name__ == "__main__":
