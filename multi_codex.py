@@ -840,12 +840,7 @@ def main() -> None:
 
         print_saved_file("Architectural report prompt saved to", output_path)
         if copy_to_clipboard(combined_prompt):
-            print(
-                color_text(
-                    "  • The file, also copied to clipboard, helps you produce a detailed report using your favorite AI. Upload the file onto the UI of your favorite AI and ask the AI to follow the instructions in the file.",
-                    "green",
-                )
-            )
+            print(color_text("  • Prompt copied. Upload the saved file or paste into your AI and ask it to follow the file instructions.", "green"))
         else:
             print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
 
@@ -932,12 +927,7 @@ def main() -> None:
 
         print_saved_file("Feature and security report saved to", output_path)
         if copy_to_clipboard(combined_prompt):
-            print(
-                color_text(
-                    "  • The file, also copied to clipboard, helps you produce a detailed report using your favorite AI. Upload the file onto the UI of your favorite AI and ask the AI to follow the instructions in the file.",
-                    "green",
-                )
-            )
+            print(color_text("  • Prompt copied. Upload the saved file or paste into your AI and ask it to follow the file instructions.", "green"))
         else:
             print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
 
