@@ -30,6 +30,7 @@ A Mac CLI tool that watches a GitHub repository for new branches, lets you attac
 The repository already includes a minimal `pyproject.toml`, so you can install and run the tool directly:
 
 ```bash
+python -m pip install --upgrade pip
 pip install .
 ```
 
@@ -43,6 +44,7 @@ multi-codex
 
 ```bash
 # Install the tool (includes dependencies)
+python -m pip install --upgrade pip
 pip install .
 
 # Run
