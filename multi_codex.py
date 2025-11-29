@@ -205,6 +205,23 @@ AI_PROMPT_CONFIG: Dict[str, str] = {
         * **Developer Experience:** Suggest tooling or scripts that could make working on this repository easier (e.g., linters, pre-commit hooks, Dockerization).
         """
     ).strip(),
+    "pull_request_analysis": textwrap.dedent(
+        """
+        You are an expert pull request reviewer.
+
+        You will receive:
+        - A long-context export of the PR branch (file tree + file contents).
+        - The git diff between the PR branch and the `main` branch.
+
+        Your tasks:
+        1) Summarize the intent and scope of the PR based strictly on the provided context.
+        2) Identify the most important code changes and how they differ from `main`.
+        3) Call out risks, edge cases, and testing gaps tied to the diff.
+        4) Recommend follow-up checks or questions for the author before merge.
+
+        Keep the response concise, actionable, and evidence-driven.
+        """
+    ).strip(),
 }
 
 
@@ -600,6 +617,36 @@ def sync_remote_branch(repo_path: str, branch_name: str) -> None:
     run_git(repo_path, ["checkout", "-q", "-B", branch_name, f"origin/{branch_name}"])
 
 
+def ensure_base_branch(repo_path: str, base_branch: str) -> None:
+    """Verify the base branch exists on origin and sync it locally."""
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+    remote_branches = get_remote_branch_names(repo_path)
+    if base_branch not in remote_branches:
+        print(
+            f"Base branch '{base_branch}' not found on origin. Please ensure it exists.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    sync_remote_branch(repo_path, base_branch)
+
+
+def compute_branch_diff(repo_path: str, branch_name: str, base_branch: str = "main") -> str:
+    """Return the git diff between the base branch and the PR branch."""
+    ensure_base_branch(repo_path, base_branch)
+    sync_remote_branch(repo_path, branch_name)
+
+    try:
+        diff_output = run_git(repo_path, ["diff", f"{base_branch}...{branch_name}"])
+    except subprocess.CalledProcessError:
+        return "(Unable to compute diff. Please verify the branches exist and try again.)"
+
+    if not diff_output.strip():
+        return "(No diff between branches; they appear identical.)"
+
+    return diff_output
+
+
 def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     """
     Check out a branch and turn all (reasonable) files into a big markdown document.
@@ -717,6 +764,35 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
         "---------------- BEGIN DOCUMENT ----------------",
         document_body.rstrip(),
         "---------------- END DOCUMENT ----------------",
+    ]
+
+    return "\n".join(parts)
+
+
+def build_pr_prompt(
+    system_prompt: str,
+    branch_markdown: str,
+    diff_text: str,
+    base_branch: str,
+    pr_branch: str,
+) -> str:
+    """Construct a mega-prompt that combines long context and diff data."""
+    diff_block = diff_text.rstrip() if diff_text.strip() else "(No diff available.)"
+    parts: List[str] = [
+        system_prompt.strip(),
+        "",
+        f"Base branch: `{base_branch}`",
+        f"PR branch: `{pr_branch}`",
+        "",
+        "---------------- BEGIN LONG CONTEXT ----------------",
+        branch_markdown.rstrip(),
+        "---------------- END LONG CONTEXT ----------------",
+        "",
+        "---------------- BEGIN BRANCH DIFF ----------------",
+        "```diff",
+        diff_block,
+        "```",
+        "---------------- END BRANCH DIFF ----------------",
     ]
 
     return "\n".join(parts)
@@ -915,6 +991,7 @@ def main() -> None:
         "Analyze the architecture of a branch and produce an architectural report",
         "Compare branches and select the best one",
         "Analyze a branch for features, security, and modernization opportunities",
+        "Build a pull request mega-prompt with long context and main diff",
     ]
 
     selected_option = choose_from_list(options, "Select the workflow you want to run:")
@@ -1006,7 +1083,7 @@ def main() -> None:
         print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
         print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
 
-    else:
+    elif selected_option == options[2]:
         branch_name = prompt_for_branch_selection(repo_path, "analyze for features and security")
         print(f"\nPreparing feature and security analysis for branch: {branch_name}\n")
         branch_markdown = collect_branch_markdown(repo_path, branch_name)
@@ -1024,6 +1101,46 @@ def main() -> None:
             print(color_text("  • Prompt copied. Upload the saved file or paste into your AI and ask it to follow the file instructions.", "green"))
         else:
             print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
+
+    else:
+        base_branch = "main"
+        branch_name = prompt_for_branch_selection(repo_path, "analyze as a pull request")
+        print(
+            f"\nPreparing pull request mega-prompt for branch: {branch_name} (base: {base_branch})\n"
+        )
+        branch_markdown = collect_branch_markdown(repo_path, branch_name)
+        diff_text = compute_branch_diff(repo_path, branch_name, base_branch)
+
+        combined_prompt = build_pr_prompt(
+            AI_PROMPT_CONFIG["pull_request_analysis"],
+            branch_markdown,
+            diff_text,
+            base_branch,
+            branch_name,
+        )
+
+        branch_slug = slugify_branch_name(branch_name)
+        output_path = os.path.join(
+            report_path, f"pull_request_analysis_{branch_slug}_vs_{base_branch}.md"
+        )
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
+
+        print_saved_file("Pull request analysis prompt saved to", output_path)
+        if copy_to_clipboard(combined_prompt):
+            print(
+                color_text(
+                    "  • Prompt copied. Upload the saved file or paste into your AI UI to run the PR review.",
+                    "green",
+                )
+            )
+        else:
+            print(
+                color_text(
+                    "  • Copy the combined PR prompt file from the path above to share with your AI assistant.",
+                    "yellow",
+                )
+            )
 
     if selected_option != options[1]:
         print(color_text("\nDone ✅", "green", bold=True))
