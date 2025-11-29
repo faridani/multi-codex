@@ -503,6 +503,84 @@ def read_text_file(path: str) -> Optional[str]:
         return None
 
 
+def detect_language_from_path(path: str) -> str:
+    """Infer a language extension for code fences based on the file name."""
+    extension = os.path.splitext(path.lower())[1]
+    mapping = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".jsx": "jsx",
+        ".json": "json",
+        ".md": "markdown",
+        ".yml": "yaml",
+        ".yaml": "yaml",
+        ".toml": "toml",
+        ".rs": "rust",
+        ".go": "go",
+        ".rb": "ruby",
+        ".java": "java",
+        ".c": "c",
+        ".h": "c",
+        ".cpp": "cpp",
+        ".hpp": "cpp",
+        ".cs": "csharp",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".zsh": "bash",
+        ".fish": "fish",
+        ".html": "html",
+        ".css": "css",
+        ".scss": "scss",
+        ".sql": "sql",
+        ".xml": "xml",
+        ".ini": "ini",
+        ".cfg": "ini",
+        ".env": "bash",
+    }
+
+    return mapping.get(extension, "text")
+
+
+def render_ascii_tree(root_name: str, file_paths: List[str]) -> str:
+    """Render an ASCII tree from a list of relative file paths."""
+
+    def insert_path(tree: Dict[str, Optional[Dict]], parts: List[str]) -> None:
+        node = tree
+        for idx, part in enumerate(parts):
+            is_leaf = idx == len(parts) - 1
+            if is_leaf:
+                node.setdefault(part, None)
+            else:
+                node = node.setdefault(part, {})
+
+    def walk_tree(tree: Dict[str, Optional[Dict]], prefix: str) -> List[str]:
+        lines: List[str] = []
+        directories = sorted([name for name, child in tree.items() if isinstance(child, dict)])
+        files = sorted([name for name, child in tree.items() if child is None])
+        entries = directories + files
+
+        for idx, name in enumerate(entries):
+            child = tree[name]
+            connector = "└── " if idx == len(entries) - 1 else "├── "
+            lines.append(f"{prefix}{connector}{name}")
+
+            if isinstance(child, dict):
+                branch_prefix = "    " if idx == len(entries) - 1 else "│   "
+                lines.extend(walk_tree(child, prefix + branch_prefix))
+
+        return lines
+
+    tree: Dict[str, Optional[Dict]] = {}
+    for path in sorted(file_paths):
+        insert_path(tree, path.split(os.sep))
+
+    lines = [root_name]
+    lines.extend(walk_tree(tree, ""))
+    return "\n".join(lines)
+
+
 def slugify_branch_name(branch_name: str) -> str:
     """
     Convert a branch name into a filesystem-friendly slug.
@@ -535,11 +613,12 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     """
     sync_remote_branch(repo_path, branch_name)
 
-    lines: List[str] = []
-    lines.append(f"# Branch `{branch_name}` contents\n")
+    repo_name = os.path.basename(os.path.abspath(repo_path))
+
+    file_sections: List[tuple[str, str, str]] = []  # (relative path, language, content)
+    included_files: List[str] = []
 
     for root, dirs, files in os.walk(repo_path):
-        # prune ignored dirs
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
 
         for file_name in sorted(files):
@@ -550,12 +629,28 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
             if text is None:
                 continue
 
-            lines.append(f"## `{rel_path}`")
-            lines.append("")
-            lines.append("```")
-            lines.append(text.rstrip())
-            lines.append("```")
-            lines.append("")
+            language = detect_language_from_path(rel_path)
+            file_sections.append((rel_path, language, text.rstrip()))
+            included_files.append(rel_path)
+
+    lines: List[str] = []
+    lines.append(f"# Project: {repo_name} (Branch: {branch_name})")
+    lines.append("")
+    lines.append("## Project Structure")
+    lines.append("```")
+    lines.append(render_ascii_tree(repo_name, included_files))
+    lines.append("```")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## File Contents")
+
+    for rel_path, language, content in sorted(file_sections, key=lambda item: item[0]):
+        lines.append(f"### FILE: {rel_path}")
+        lines.append(f"```{language}")
+        lines.append(content)
+        lines.append("```")
+        lines.append("")
 
     return "\n".join(lines)
 
