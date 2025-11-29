@@ -46,6 +46,41 @@ IGNORED_DIRS = {
     ".vscode",
 }
 
+LANGUAGE_EXTENSIONS = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".jsx": "jsx",
+    ".rs": "rust",
+    ".go": "go",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".rb": "ruby",
+    ".php": "php",
+    ".html": "html",
+    ".css": "css",
+    ".scss": "scss",
+    ".md": "markdown",
+    ".txt": "text",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".ini": "ini",
+    ".cfg": "ini",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".sql": "sql",
+}
+
 BANNER = r"""
 ░███     ░███            ░██    ░██    ░██                             ░██
 ░████   ░████            ░██    ░██                                    ░██
@@ -503,6 +538,42 @@ def read_text_file(path: str) -> Optional[str]:
         return None
 
 
+def guess_language_from_path(path: str) -> str:
+    """Infer a markdown code fence language from a file path."""
+    ext = os.path.splitext(path)[1].lower()
+    return LANGUAGE_EXTENSIONS.get(ext, "")
+
+
+def build_tree_from_paths(repo_name: str, paths: List[str]) -> str:
+    """Create an ASCII directory tree for the provided file paths."""
+
+    def insert_path(tree: Dict[str, Dict], path: str) -> None:
+        parts = path.split(os.sep)
+        node = tree
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = None
+
+    def render_tree(tree: Dict[str, Dict], prefix: str = "") -> List[str]:
+        rendered: List[str] = []
+        entries = sorted(tree.items(), key=lambda item: (item[1] is None, item[0].lower()))
+        for idx, (name, child) in enumerate(entries):
+            connector = "└── " if idx == len(entries) - 1 else "├── "
+            rendered.append(f"{prefix}{connector}{name}")
+            if isinstance(child, dict):
+                extension = "    " if idx == len(entries) - 1 else "│   "
+                rendered.extend(render_tree(child, prefix + extension))
+        return rendered
+
+    tree: Dict[str, Dict] = {}
+    for path in paths:
+        insert_path(tree, path)
+
+    lines = [repo_name]
+    lines.extend(render_tree(tree))
+    return "\n".join(lines)
+
+
 def slugify_branch_name(branch_name: str) -> str:
     """
     Convert a branch name into a filesystem-friendly slug.
@@ -535,12 +606,11 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     """
     sync_remote_branch(repo_path, branch_name)
 
-    lines: List[str] = []
-    lines.append(f"# Branch `{branch_name}` contents\n")
+    repo_name = os.path.basename(os.path.abspath(repo_path))
+    file_entries: List[Dict[str, str]] = []
 
     for root, dirs, files in os.walk(repo_path):
-        # prune ignored dirs
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
+        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and d != APP_DIR_NAME]
 
         for file_name in sorted(files):
             full_path = os.path.join(root, file_name)
@@ -550,14 +620,38 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
             if text is None:
                 continue
 
-            lines.append(f"## `{rel_path}`")
-            lines.append("")
-            lines.append("```")
-            lines.append(text.rstrip())
-            lines.append("```")
-            lines.append("")
+            file_entries.append(
+                {
+                    "path": rel_path,
+                    "content": text.rstrip(),
+                    "language": guess_language_from_path(rel_path),
+                }
+            )
 
-    return "\n".join(lines)
+    file_entries.sort(key=lambda entry: entry["path"].lower())
+    tree_paths = [entry["path"] for entry in file_entries]
+    tree = build_tree_from_paths(repo_name, tree_paths) if tree_paths else repo_name
+
+    lines: List[str] = []
+    lines.append(f"# Project: {repo_name} (Branch: {branch_name})")
+    lines.append("")
+    lines.append("## Project Structure")
+    lines.append("```")
+    lines.append(tree)
+    lines.append("```")
+    lines.append("---")
+    lines.append("## File Contents")
+
+    for entry in file_entries:
+        lang = entry["language"]
+        fence = f"```{lang}" if lang else "```"
+        lines.append(f"### FILE: {entry['path']}")
+        lines.append(fence)
+        lines.append(entry["content"])
+        lines.append("```")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def build_single_branch_prompt(system_prompt: str, branch_markdown: str) -> str:
