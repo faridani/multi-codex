@@ -205,6 +205,26 @@ AI_PROMPT_CONFIG: Dict[str, str] = {
         * **Developer Experience:** Suggest tooling or scripts that could make working on this repository easier (e.g., linters, pre-commit hooks, Dockerization).
         """
     ).strip(),
+    "pull_request_analysis": textwrap.dedent(
+        """
+        You are an expert software engineer and PR reviewer.
+
+        You will receive two inputs:
+        - A long-context snapshot of the pull request branch (file tree and file contents).
+        - The git diff between the pull request branch and the main branch.
+
+        Review expectations:
+        1) Infer the intent of the pull request from the evidence.
+        2) Highlight risks, bugs, missing tests, and confusing or risky changes.
+        3) Recommend concrete next steps to land the PR safely.
+
+        Deliverables:
+        - A short summary of the PR intent and scope.
+        - A checklist of potential issues with file or path references.
+        - Deployment/readiness notes and suggested reviewers or test areas.
+        Keep every observation grounded in the provided context and diff.
+        """
+    ).strip(),
 }
 
 
@@ -600,6 +620,25 @@ def sync_remote_branch(repo_path: str, branch_name: str) -> None:
     run_git(repo_path, ["checkout", "-q", "-B", branch_name, f"origin/{branch_name}"])
 
 
+def compute_branch_diff(repo_path: str, branch_name: str, base_branch: str = "main") -> str:
+    """Return the git diff between a branch and a base branch, or a message if unavailable."""
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+
+    remote_branches = get_remote_branch_names(repo_path)
+    if branch_name not in remote_branches:
+        return f"Branch '{branch_name}' was not found on origin; unable to compute diff."
+    if base_branch not in remote_branches:
+        return f"Base branch '{base_branch}' not found on origin; unable to compute diff."
+    if branch_name == base_branch:
+        return f"Branch '{branch_name}' is the base branch '{base_branch}'; no diff to compute."
+
+    diff_range = f"origin/{base_branch}...origin/{branch_name}"
+    diff_output = run_git(repo_path, ["diff", "--no-color", diff_range])
+    if diff_output.strip():
+        return diff_output
+    return f"No differences found between {branch_name} and {base_branch}."
+
+
 def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     """
     Check out a branch and turn all (reasonable) files into a big markdown document.
@@ -662,6 +701,33 @@ def build_single_branch_prompt(system_prompt: str, branch_markdown: str) -> str:
             "",
             "---------------- BEGIN DOCUMENT ----------------",
             branch_markdown.rstrip(),
+            "---------------- END DOCUMENT ----------------",
+        ]
+    )
+
+
+def build_pull_request_prompt(
+    system_prompt: str,
+    branch_markdown: str,
+    diff_text: str,
+    branch_name: str,
+    base_branch: str,
+) -> str:
+    """Build a mega prompt that combines long context with a diff against the base branch."""
+    diff_section = diff_text.rstrip() or f"No differences found between {branch_name} and {base_branch}."
+
+    return "\n".join(
+        [
+            system_prompt.strip(),
+            "",
+            "---------------- BEGIN DOCUMENT ----------------",
+            f"# Long context for branch `{branch_name}`",
+            branch_markdown.rstrip(),
+            "",
+            f"# Git diff ({branch_name} vs {base_branch})",
+            "```diff",
+            diff_section,
+            "```",
             "---------------- END DOCUMENT ----------------",
         ]
     )
@@ -915,6 +981,7 @@ def main() -> None:
         "Analyze the architecture of a branch and produce an architectural report",
         "Compare branches and select the best one",
         "Analyze a branch for features, security, and modernization opportunities",
+        "Create a pull request review prompt with diff against main",
     ]
 
     selected_option = choose_from_list(options, "Select the workflow you want to run:")
@@ -1006,7 +1073,7 @@ def main() -> None:
         print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
         print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
 
-    else:
+    elif selected_option == options[2]:
         branch_name = prompt_for_branch_selection(repo_path, "analyze for features and security")
         print(f"\nPreparing feature and security analysis for branch: {branch_name}\n")
         branch_markdown = collect_branch_markdown(repo_path, branch_name)
@@ -1024,6 +1091,30 @@ def main() -> None:
             print(color_text("  • Prompt copied. Upload the saved file or paste into your AI and ask it to follow the file instructions.", "green"))
         else:
             print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
+
+    else:
+        branch_name = prompt_for_branch_selection(repo_path, "analyze as a pull request")
+        print(f"\nPreparing pull request mega prompt for branch: {branch_name}\n")
+        branch_markdown = collect_branch_markdown(repo_path, branch_name)
+        diff_text = compute_branch_diff(repo_path, branch_name, base_branch="main")
+        combined_prompt = build_pull_request_prompt(
+            AI_PROMPT_CONFIG["pull_request_analysis"],
+            branch_markdown,
+            diff_text,
+            branch_name,
+            base_branch="main",
+        )
+
+        branch_slug = slugify_branch_name(branch_name)
+        output_path = os.path.join(report_path, f"pull_request_analysis_{branch_slug}.md")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
+
+        print_saved_file("Pull request review prompt saved to", output_path)
+        if copy_to_clipboard(combined_prompt):
+            print(color_text("  • Prompt copied. Share it with your AI reviewer to evaluate the PR.", "green"))
+        else:
+            print(color_text("  • Copy the prompt from the path above to share with your AI assistant.", "yellow"))
 
     if selected_option != options[1]:
         print(color_text("\nDone ✅", "green", bold=True))
