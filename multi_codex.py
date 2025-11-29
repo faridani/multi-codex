@@ -205,6 +205,24 @@ AI_PROMPT_CONFIG: Dict[str, str] = {
         * **Developer Experience:** Suggest tooling or scripts that could make working on this repository easier (e.g., linters, pre-commit hooks, Dockerization).
         """
     ).strip(),
+    "pr_long_context": textwrap.dedent(
+        """
+        You are a senior engineer preparing a Pull Request review. You will receive two sources of truth:
+
+        1) A "long context" snapshot of the PR branch that includes the project structure and the full contents of relevant files.
+        2) A Git diff showing every change between the PR branch and the base branch.
+
+        How to use this information:
+        - Treat the long context as the authoritative view of the branch in its current state.
+        - Use the diff to understand what changed from the base branch and to focus your review on the new work.
+
+        Deliverables:
+        1) A concise summary of the PR changes grounded in the diff.
+        2) A risk and impact assessment that references specific files or code paths.
+        3) Targeted review notes highlighting potential bugs, gaps in tests, or architectural concerns.
+        4) A clear list of follow-up actions or questions for the author.
+        """
+    ).strip(),
 }
 
 
@@ -722,6 +740,45 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     return "\n".join(parts)
 
 
+def compute_branch_diff(repo_path: str, branch_name: str, base_branch: str = "main") -> str:
+    """Return the git diff between the PR branch and the base branch."""
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+
+    branch_ref = f"origin/{branch_name}"
+    base_ref = f"origin/{base_branch}"
+    diff_output = run_git(repo_path, ["diff", f"{base_ref}...{branch_ref}"])
+
+    if not diff_output.strip():
+        return f"No differences between {branch_ref} and {base_ref}."
+
+    return diff_output.strip()
+
+
+def build_pr_mega_prompt(system_prompt: str,
+                        branch_name: str,
+                        base_branch: str,
+                        branch_markdown: str,
+                        diff_text: str) -> str:
+    """Combine long context and git diff into a single PR analysis prompt."""
+    diff_body = diff_text.strip() or f"No differences between origin/{branch_name} and origin/{base_branch}."
+
+    parts: List[str] = [
+        system_prompt.strip(),
+        "",
+        "---------------- BEGIN DOCUMENT ----------------",
+        f"## PR Branch Long Context ({branch_name})",
+        branch_markdown.rstrip(),
+        "",
+        f"## Diff: {branch_name} vs {base_branch}",
+        "```diff",
+        diff_body,
+        "```",
+        "---------------- END DOCUMENT ----------------",
+    ]
+
+    return "\n".join(parts)
+
+
 def copy_to_clipboard(text: str) -> bool:
     """
     Attempt to copy text to the clipboard on macOS, Windows, or Linux.
@@ -898,7 +955,7 @@ def main() -> None:
         "Monitor your GitHub repository for new branches in real time.",
         "Guide you through selecting the branches and attaching your spec or design doc.",
         "Generate rich markdown snapshots for every branch you pick.",
-        "Assemble a polished, single prompt you can paste straight into your AI UI for comparison.",
+        "Assemble polished prompts you can paste straight into your AI UI for analysis and comparison.",
     ]
     for idx, step in enumerate(steps, 1):
         print(f"  {color_text(str(idx) + ')', 'green', bold=True)} {color_text(step, 'grey')}")
@@ -914,6 +971,7 @@ def main() -> None:
     options = [
         "Analyze the architecture of a branch and produce an architectural report",
         "Compare branches and select the best one",
+        "Prepare a PR review mega prompt with long context and a diff against the base branch",
         "Analyze a branch for features, security, and modernization opportunities",
     ]
 
@@ -999,12 +1057,57 @@ def main() -> None:
                 "  • Open https://chatgpt.com/ and paste the contents into the UI to run the branch analysis.",
                 "grey",
             )
-        )
+            )
 
         print(color_text("\nDone ✅", "green", bold=True))
         print(color_text("You can open the markdown files in your editor to inspect:", "grey"))
         print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
         print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
+
+    elif selected_option == options[2]:
+        branch_name = prompt_for_branch_selection(
+            repo_path, "convert to long context and diff for PR review"
+        )
+        base_branch_input = input("Enter the base branch to diff against [main]: ").strip()
+        base_branch = base_branch_input or "main"
+
+        print(f"\nBuilding long-context snapshot for PR branch: {branch_name}\n")
+        branch_markdown = collect_branch_markdown(repo_path, branch_name)
+
+        print(f"Computing diff against base branch '{base_branch}'...\n")
+        diff_text = compute_branch_diff(repo_path, branch_name, base_branch)
+
+        combined_prompt = build_pr_mega_prompt(
+            AI_PROMPT_CONFIG["pr_long_context"],
+            branch_name,
+            base_branch,
+            branch_markdown,
+            diff_text,
+        )
+
+        branch_slug = slugify_branch_name(branch_name)
+        base_slug = slugify_branch_name(base_branch)
+        output_path = os.path.join(
+            report_path, f"pr_review_prompt_{branch_slug}_vs_{base_slug}.md"
+        )
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
+
+        print_saved_file("PR review mega prompt saved to", output_path)
+        if copy_to_clipboard(combined_prompt):
+            print(
+                color_text(
+                    "  • PR mega prompt copied to your clipboard.",
+                    "green",
+                )
+            )
+        else:
+            print(
+                color_text(
+                    "  • Copy the PR mega prompt from the path above to share with your AI assistant.",
+                    "yellow",
+                )
+            )
 
     else:
         branch_name = prompt_for_branch_selection(repo_path, "analyze for features and security")
