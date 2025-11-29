@@ -46,6 +46,41 @@ IGNORED_DIRS = {
     ".vscode",
 }
 
+LANGUAGE_EXTENSIONS = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".jsx": "jsx",
+    ".rs": "rust",
+    ".go": "go",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".cs": "csharp",
+    ".rb": "ruby",
+    ".php": "php",
+    ".html": "html",
+    ".css": "css",
+    ".scss": "scss",
+    ".md": "markdown",
+    ".txt": "text",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".ini": "ini",
+    ".cfg": "ini",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".sql": "sql",
+}
+
 BANNER = r"""
 ░███     ░███            ░██    ░██    ░██                             ░██
 ░████   ░████            ░██    ░██                                    ░██
@@ -89,6 +124,88 @@ INSTRUCTION_PROMPT = (
     "  3) The features the best branch is missing or only partially implements.\n"
     "Be crisp and evidence-driven."
 )
+
+AI_PROMPT_CONFIG: Dict[str, str] = {
+    "branch_comparison": INSTRUCTION_PROMPT,
+    "arch_deep_dive": textwrap.dedent(
+        """
+        You are a skilled and experienced **Software Architect** consultant. Your primary task is to analyze the provided documentation, file structure, and code content from a software branch and generate a comprehensive, professional **Architectural Report**.
+
+        Your analysis must be grounded strictly in the provided content. Assume the perspective of a technical leader presenting findings to a team of engineers and stakeholders.
+
+        The final report must be clearly structured and must address all of the following requirements in detail:
+
+        ### 1. Software Overview & Functionality
+
+        * **Core Purpose:** Explain the software's primary objective and what problem it is designed to solve.
+        * **Functionality:** Describe the key features and observable actions the software performs, as evidenced by the code (e.g., API endpoints, database models, UI components).
+
+        ### 2. Technology Stack Deep Dive
+
+        * **Identification:** List all identified programming **languages**, major **frameworks** (e.g., FastAPI, React, Django), and key **libraries/tools** (e.g., SQLAlchemy, pytest) used in the project.
+        * **Architectural Context and Assessment:** For each significant technology, analyze its use within the project's architecture and detail the relevant **pros and cons** (advantages/disadvantages) of using that specific technology for this kind of software.
+
+        ### 3. Component Breakdown & Detailed Code Explanation
+
+        * **Architecture Components:** Identify and describe the major architectural components (e.g., data models, authentication layer, API routes, testing structure, frontend views).
+        * **In-Depth Code Analysis:** For each critical or representative piece of code (e.g., a specific class, function, or file), provide a detailed explanation of its purpose, logic flow, and implementation details. This explanation must be technical enough for a person with strong familiarity with the coding language and the used technologies to fully understand *how* it works and *why* it was implemented that way.
+
+        ### 4. Code Quality Assessment (Strengths)
+
+        * **Well-Coded Areas:** Identify specific files, functions, or architectural decisions that demonstrate **excellent** coding practices, adherence to design patterns, efficiency, strong abstraction, or robust testing (if applicable).
+        * **Justification:** Explain precisely *why* these areas are considered well-coded.
+
+        ### 5. Technical Debt and Improvement Areas (Weaknesses)
+
+        * **Areas for Improvement:** Identify specific files, functions, or architectural patterns that require attention.
+        * **Recommendations:** Provide specific, actionable recommendations for improvement, categorized as:
+            * **Architectural Flaws:** Suggestions for better design patterns, decoupling, or scaling.
+            * **Performance Bottlenecks:** Areas that may be slow or resource-intensive.
+            * **Security Risks:** Potential vulnerabilities (e.g., data handling, API key storage, input validation).
+            * **Maintainability/Readability:** Complex, overly-coupled, poorly documented, or non-idiomatic code that increases long-term cost.
+
+        ### 6. Summary and Conclusion
+
+        * Provide a concise executive summary of the software's overall architectural health and strategic next steps.
+        """
+    ).strip(),  # NOTE: Original spec text included the typo "architech"; the prompt intentionally corrects it.
+    "feature_security_analysis": textwrap.dedent(
+        """
+        You are a **Senior Software Engineer and Technical Consultant** with extensive experience in code auditing, security analysis, and product development.
+
+        Your task is to review the provided code branch and produce a **Strategic Code Review and Roadmap**. You must look beyond simple syntax checks and analyze the codebase from the perspective of security, scalability, maintainability, and product evolution.
+
+        Please structure your response into the following detailed sections:
+
+        ### 1. System Summary & Codebase Orientation
+        * **Context:** Briefly explain what this software appears to be doing based on the file structure and code logic.
+        * **Tech Stack:** Identify the core languages, frameworks, and libraries in use.
+
+        ### 2. Security & Safety Audit (Critical)
+        * **Vulnerability Analysis:** Scrutinize the code for common security flaws (e.g., SQL injection, XSS, hardcoded secrets, improper authentication/authorization, insecure dependency usage).
+        * **Data Safety:** Analyze how user input is validated and sanitized.
+        * **Risk Assessment:** Flag any "unsafe" operations (e.g., shell execution, unchecked file system access) and rate their severity (High/Medium/Low).
+
+        ### 3. Code Quality & "Flimsiness" Assessment
+        * **Fragility Analysis:** Identify areas of the code that appear "flimsy" or brittle—sections that are likely to break with minor changes or unexpected input.
+        * **Error Handling:** Evaluate the robustness of error handling. Are exceptions swallowed? Are error messages informative?
+        * **Anti-Patterns:** Point out specific coding anti-patterns, spaghetti code, or highly coupled components that hinder maintainability.
+
+        ### 4. Modernization & Refactoring Roadmap
+        * **Technical Debt:** Highlight legacy code structures or outdated libraries that should be upgraded.
+        * **Performance:** Suggest optimizations for loops, database queries, or resource-heavy operations.
+        * **Best Practices:** Recommend modern language features or architectural patterns (e.g., moving to async/await, using dependency injection, implementing strong typing) that would improve the codebase.
+
+        ### 5. Testing Strategy & Gap Analysis
+        * **Current State:** Assess existing tests (if any).
+        * **Proposed Test Cases:** Suggest specific **Unit Tests** for complex logic, **Integration Tests** for API endpoints or database interactions, and **Edge Case** scenarios that the developer might have missed.
+
+        ### 6. Feature Proposals & Product Evolution
+        * **Logical Extensions:** Based on the current functionality, suggest 3-5 new features that would add significant value to the user or admin experience.
+        * **Developer Experience:** Suggest tooling or scripts that could make working on this repository easier (e.g., linters, pre-commit hooks, Dockerization).
+        """
+    ).strip(),
+}
 
 
 # -----------------------
@@ -253,6 +370,55 @@ def ensure_local_clone(repo_url: str, repo_path: str) -> None:
         sys.exit(1)
 
 
+def choose_from_list(options: List[str], prompt: str) -> str:
+    """Prompt the user to select from a numbered list of options."""
+    if not options:
+        raise ValueError("No options provided for selection")
+
+    while True:
+        print(prompt)
+        for idx, option in enumerate(options, 1):
+            print(f"  {idx}. {option}")
+
+        raw = input("Enter the number of your choice: ").strip()
+        if not raw.isdigit():
+            print("Please enter a valid number.\n")
+            continue
+
+        idx = int(raw)
+        if 1 <= idx <= len(options):
+            return options[idx - 1]
+
+        print("Choice out of range. Please try again.\n")
+
+
+def select_branch(branches: List[str], prompt: str) -> Optional[str]:
+    """Allow branch selection by index or name with validation."""
+    if not branches:
+        raise ValueError("No branches available for selection")
+
+    while True:
+        print(prompt)
+        for idx, branch in enumerate(branches, 1):
+            print(f"  {idx}. {branch}")
+
+        choice = input("Select a branch by number or name (or press Enter to cancel): ").strip()
+        if not choice:
+            return None
+
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(branches):
+                return branches[idx - 1]
+            print("Invalid branch number. Please choose a listed option.\n")
+            continue
+
+        if choice in branches:
+            return choice
+
+        print("Branch not recognized. Enter a listed number or an exact branch name.\n")
+
+
 def get_remote_branch_names(repo_path: str) -> Set[str]:
     """
     Return a set of remote branch names (without the 'origin/' prefix).
@@ -273,6 +439,23 @@ def get_remote_branch_names(repo_path: str) -> Set[str]:
         branches.add(name)
 
     return branches
+
+
+def prompt_for_branch_selection(repo_path: str, action_label: str) -> str:
+    """Ask the user to pick a branch from the remote list for a single-branch workflow."""
+    run_git(repo_path, ["fetch", "origin", "--prune"])
+    branches = sorted(get_remote_branch_names(repo_path))
+
+    if not branches:
+        print("No remote branches found on origin. Exiting.")
+        sys.exit(1)
+
+    choice = select_branch(branches, f"Select the branch to {action_label}:")
+    if choice is None:
+        print("No branch selected. Exiting.")
+        sys.exit(1)
+
+    return choice
 
 
 def prompt_for_project_spec() -> (Optional[str], str):
@@ -355,6 +538,42 @@ def read_text_file(path: str) -> Optional[str]:
         return None
 
 
+def guess_language_from_path(path: str) -> str:
+    """Infer a markdown code fence language from a file path."""
+    ext = os.path.splitext(path)[1].lower()
+    return LANGUAGE_EXTENSIONS.get(ext, "")
+
+
+def build_tree_from_paths(repo_name: str, paths: List[str]) -> str:
+    """Create an ASCII directory tree for the provided file paths."""
+
+    def insert_path(tree: Dict[str, Dict], path: str) -> None:
+        parts = path.split(os.sep)
+        node = tree
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = None
+
+    def render_tree(tree: Dict[str, Dict], prefix: str = "") -> List[str]:
+        rendered: List[str] = []
+        entries = sorted(tree.items(), key=lambda item: (item[1] is None, item[0].lower()))
+        for idx, (name, child) in enumerate(entries):
+            connector = "└── " if idx == len(entries) - 1 else "├── "
+            rendered.append(f"{prefix}{connector}{name}")
+            if isinstance(child, dict):
+                extension = "    " if idx == len(entries) - 1 else "│   "
+                rendered.extend(render_tree(child, prefix + extension))
+        return rendered
+
+    tree: Dict[str, Dict] = {}
+    for path in paths:
+        insert_path(tree, path)
+
+    lines = [repo_name]
+    lines.extend(render_tree(tree))
+    return "\n".join(lines)
+
+
 def slugify_branch_name(branch_name: str) -> str:
     """
     Convert a branch name into a filesystem-friendly slug.
@@ -387,12 +606,11 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     """
     sync_remote_branch(repo_path, branch_name)
 
-    lines: List[str] = []
-    lines.append(f"# Branch `{branch_name}` contents\n")
+    repo_name = os.path.basename(os.path.abspath(repo_path))
+    file_entries: List[Dict[str, str]] = []
 
     for root, dirs, files in os.walk(repo_path):
-        # prune ignored dirs
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
+        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and d != APP_DIR_NAME]
 
         for file_name in sorted(files):
             full_path = os.path.join(root, file_name)
@@ -402,14 +620,51 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
             if text is None:
                 continue
 
-            lines.append(f"## `{rel_path}`")
-            lines.append("")
-            lines.append("```")
-            lines.append(text.rstrip())
-            lines.append("```")
-            lines.append("")
+            file_entries.append(
+                {
+                    "path": rel_path,
+                    "content": text.rstrip(),
+                    "language": guess_language_from_path(rel_path),
+                }
+            )
 
-    return "\n".join(lines)
+    file_entries.sort(key=lambda entry: entry["path"].lower())
+    tree_paths = [entry["path"] for entry in file_entries]
+    tree = build_tree_from_paths(repo_name, tree_paths) if tree_paths else repo_name
+
+    lines: List[str] = []
+    lines.append(f"# Project: {repo_name} (Branch: {branch_name})")
+    lines.append("")
+    lines.append("## Project Structure")
+    lines.append("```")
+    lines.append(tree)
+    lines.append("```")
+    lines.append("---")
+    lines.append("## File Contents")
+
+    for entry in file_entries:
+        lang = entry["language"]
+        fence = f"```{lang}" if lang else "```"
+        lines.append(f"### FILE: {entry['path']}")
+        lines.append(fence)
+        lines.append(entry["content"])
+        lines.append("```")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def build_single_branch_prompt(system_prompt: str, branch_markdown: str) -> str:
+    """Assemble a single-branch document with a system prompt header."""
+    return "\n".join(
+        [
+            system_prompt.strip(),
+            "",
+            "---------------- BEGIN DOCUMENT ----------------",
+            branch_markdown.rstrip(),
+            "---------------- END DOCUMENT ----------------",
+        ]
+    )
 
 
 def print_saved_file(label: str, path: str) -> None:
@@ -454,7 +709,7 @@ def build_final_prompt(document_body: str, branch_names: List[str]) -> str:
     branches_display = ", ".join(f"`{name}`" for name in branch_names) if branch_names else "None"
 
     parts: List[str] = [
-        INSTRUCTION_PROMPT,
+        AI_PROMPT_CONFIG["branch_comparison"],
         "",
         "Here is the combined specification and branch content markdown.",
         f"The branches to compare are: {branches_display}.",
@@ -651,77 +906,129 @@ def main() -> None:
 
     repo_url = input_non_empty("Enter your GitHub repository URL (HTTPS or SSH): ")
 
-    spec_path, spec_content = prompt_for_project_spec()
-
     repo_slug = slugify_repo_url(repo_url)
     repo_path, report_path = ensure_app_dirs(repo_slug)
 
     ensure_local_clone(repo_url, repo_path)
 
-    # Monitor new branches and let user choose which ones to evaluate
-    branch_specs = monitor_branches(repo_path)
+    options = [
+        "Analyze the architecture of a branch and produce an architectural report",
+        "Compare branches and select the best one",
+        "Analyze a branch for features, security, and modernization opportunities",
+    ]
 
-    if not branch_specs:
-        print("No branches were selected for evaluation. Exiting.")
-        return
+    selected_option = choose_from_list(options, "Select the workflow you want to run:")
 
-    # Build per-branch markdowns
-    print("Generating markdown snapshot for each selected branch...\n")
-    branch_markdown: Dict[str, str] = {}
-
-    for branch_name, bs in branch_specs.items():
-        print(f"Processing branch: {branch_name}")
-        md_text = collect_branch_markdown(repo_path, branch_name)
-        branch_markdown[branch_name] = md_text
+    if selected_option == options[0]:
+        branch_name = prompt_for_branch_selection(repo_path, "analyze for architecture")
+        print(f"\nPreparing architectural report prompt for branch: {branch_name}\n")
+        branch_markdown = collect_branch_markdown(repo_path, branch_name)
+        combined_prompt = build_single_branch_prompt(
+            AI_PROMPT_CONFIG["arch_deep_dive"], branch_markdown
+        )
 
         branch_slug = slugify_branch_name(branch_name)
-        branch_md_path = os.path.join(report_path, f"branch_{branch_slug}.md")
-        with open(branch_md_path, "w", encoding="utf-8") as f:
-            f.write(md_text)
-        bs.branch_markdown_path = branch_md_path
-        print_saved_file("  -> Branch markdown saved to", branch_md_path)
+        output_path = os.path.join(report_path, f"architecture_report_{branch_slug}.md")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
 
-    document_body = build_document_body(spec_path, spec_content, branch_markdown)
-    branch_names_sorted = sorted(branch_specs.keys())
+        print_saved_file("Architectural report prompt saved to", output_path)
+        if copy_to_clipboard(combined_prompt):
+            print(color_text("  • Prompt copied. Upload the saved file or paste into your AI and ask it to follow the file instructions.", "green"))
+        else:
+            print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
 
-    # Combined markdown prompt (ready to paste into AI UI)
-    combined_prompt = build_final_prompt(document_body, branch_names_sorted)
-    combined_prompt_path = os.path.join(report_path, "combined_spec_and_branches.md")
+    elif selected_option == options[1]:
+        spec_path, spec_content = prompt_for_project_spec()
 
-    with open(combined_prompt_path, "w", encoding="utf-8") as f:
-        f.write(combined_prompt)
+        # Monitor new branches and let user choose which ones to evaluate
+        branch_specs = monitor_branches(repo_path)
 
-    print(color_text("\nCombined markdown saved to:", "magenta", bold=True))
-    print_saved_file("  -> Path", combined_prompt_path)
-    print("  (Contents intentionally not printed to avoid console noise)\n")
+        if not branch_specs:
+            print("No branches were selected for evaluation. Exiting.")
+            return
 
-    copied = copy_to_clipboard(combined_prompt)
-    print(color_text("Next step: share with ChatGPT.", "magenta", bold=True))
-    if copied:
+        # Build per-branch markdowns
+        print("Generating markdown snapshot for each selected branch...\n")
+        branch_markdown: Dict[str, str] = {}
+
+        for branch_name, bs in branch_specs.items():
+            print(f"Processing branch: {branch_name}")
+            md_text = collect_branch_markdown(repo_path, branch_name)
+            branch_markdown[branch_name] = md_text
+
+            branch_slug = slugify_branch_name(branch_name)
+            branch_md_path = os.path.join(report_path, f"branch_{branch_slug}.md")
+            with open(branch_md_path, "w", encoding="utf-8") as f:
+                f.write(md_text)
+            bs.branch_markdown_path = branch_md_path
+            print_saved_file("  -> Branch markdown saved to", branch_md_path)
+
+        document_body = build_document_body(spec_path, spec_content, branch_markdown)
+        branch_names_sorted = sorted(branch_specs.keys())
+
+        # Combined markdown prompt (ready to paste into AI UI)
+        combined_prompt = build_final_prompt(document_body, branch_names_sorted)
+        combined_prompt_path = os.path.join(report_path, "combined_spec_and_branches.md")
+
+        with open(combined_prompt_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
+
+        print(color_text("\nCombined markdown saved to:", "magenta", bold=True))
+        print_saved_file("  -> Path", combined_prompt_path)
+        print("  (Contents intentionally not printed to avoid console noise)\n")
+
+        copied = copy_to_clipboard(combined_prompt)
+        print(color_text("Next step: share with ChatGPT.", "magenta", bold=True))
+        if copied:
+            print(
+                color_text(
+                    "  • Combined prompt copied to your clipboard.",
+                    "green",
+                )
+            )
+        else:
+            print(
+                color_text(
+                    "  • Copy the combined prompt file to your clipboard from the path above.",
+                    "yellow",
+                )
+            )
         print(
             color_text(
-                "  • Combined prompt copied to your clipboard.",
-                "green",
+                "  • Open https://chatgpt.com/ and paste the contents into the UI to run the branch analysis.",
+                "grey",
             )
         )
+
+        print(color_text("\nDone ✅", "green", bold=True))
+        print(color_text("You can open the markdown files in your editor to inspect:", "grey"))
+        print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
+        print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
+
     else:
-        print(
-            color_text(
-                "  • Copy the combined prompt file to your clipboard from the path above.",
-                "yellow",
-            )
+        branch_name = prompt_for_branch_selection(repo_path, "analyze for features and security")
+        print(f"\nPreparing feature and security analysis for branch: {branch_name}\n")
+        branch_markdown = collect_branch_markdown(repo_path, branch_name)
+        combined_prompt = build_single_branch_prompt(
+            AI_PROMPT_CONFIG["feature_security_analysis"], branch_markdown
         )
-    print(
-        color_text(
-            "  • Open https://chatgpt.com/ and paste the contents into the UI to run the branch analysis.",
-            "grey",
-        )
-    )
 
-    print(color_text("\nDone ✅", "green", bold=True))
-    print(color_text("You can open the markdown files in your editor to inspect:", "grey"))
-    print_saved_file("  - Combined specs + branches prompt", combined_prompt_path)
-    print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
+        branch_slug = slugify_branch_name(branch_name)
+        output_path = os.path.join(report_path, f"feature_security_report_{branch_slug}.md")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(combined_prompt)
+
+        print_saved_file("Feature and security report saved to", output_path)
+        if copy_to_clipboard(combined_prompt):
+            print(color_text("  • Prompt copied. Upload the saved file or paste into your AI and ask it to follow the file instructions.", "green"))
+        else:
+            print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
+
+    if selected_option != options[1]:
+        print(color_text("\nDone ✅", "green", bold=True))
+        print(color_text("You can open the markdown file in your editor or share it with your AI assistant.", "grey"))
+        print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
 
 
 if __name__ == "__main__":
