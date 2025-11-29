@@ -503,6 +503,79 @@ def read_text_file(path: str) -> Optional[str]:
         return None
 
 
+def get_repo_display_name(repo_path: str) -> str:
+    """Return a human-friendly repository name for markdown headers."""
+    try:
+        toplevel = run_git(repo_path, ["rev-parse", "--show-toplevel"]).strip()
+        if toplevel:
+            return os.path.basename(toplevel)
+    except Exception:
+        pass
+
+    return os.path.basename(repo_path.rstrip(os.sep)) or "repository"
+
+
+def build_ascii_tree(repo_path: str) -> str:
+    """Create an ASCII tree of the repository, skipping ignored directories."""
+
+    def walk(path: str, prefix: str) -> List[str]:
+        entries: List[str] = []
+        try:
+            with os.scandir(path) as it:
+                dirs: List[str] = []
+                files: List[str] = []
+                for entry in it:
+                    if entry.name in IGNORED_DIRS:
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        dirs.append(entry.name)
+                    elif entry.is_file(follow_symlinks=False):
+                        files.append(entry.name)
+
+                dirs.sort()
+                files.sort()
+                entries_sorted = dirs + files
+
+                for idx, name in enumerate(entries_sorted):
+                    connector = "└── " if idx == len(entries_sorted) - 1 else "├── "
+                    line = f"{prefix}{connector}{name}"
+                    entries.append(line)
+
+                    if name in dirs:
+                        next_prefix = f"{prefix}{'    ' if idx == len(entries_sorted) - 1 else '│   '}"
+                        entries.extend(walk(os.path.join(path, name), next_prefix))
+        except PermissionError:
+            entries.append(f"{prefix}└── [permission denied]")
+
+        return entries
+
+    root_label = os.path.basename(repo_path.rstrip(os.sep)) or "."
+    lines = [root_label]
+    lines.extend(walk(repo_path, ""))
+    return "\n".join(lines)
+
+
+def detect_code_fence_language(file_name: str) -> str:
+    """Infer a code block language from the file extension."""
+    _, ext = os.path.splitext(file_name.lower())
+    return {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".jsx": "jsx",
+        ".json": "json",
+        ".md": "markdown",
+        ".txt": "text",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".sh": "bash",
+        ".rb": "ruby",
+        ".go": "go",
+        ".rs": "rust",
+    }.get(ext, "")
+
+
 def slugify_branch_name(branch_name: str) -> str:
     """
     Convert a branch name into a filesystem-friendly slug.
@@ -535,11 +608,19 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     """
     sync_remote_branch(repo_path, branch_name)
 
+    repo_name = get_repo_display_name(repo_path)
+
     lines: List[str] = []
-    lines.append(f"# Branch `{branch_name}` contents\n")
+    lines.append(f"# Project: {repo_name} (Branch: {branch_name})\n")
+
+    lines.append("## Project Structure")
+    lines.append("```")
+    lines.append(build_ascii_tree(repo_path))
+    lines.append("```")
+    lines.append("\n---\n")
+    lines.append("## File Contents")
 
     for root, dirs, files in os.walk(repo_path):
-        # prune ignored dirs
         dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
 
         for file_name in sorted(files):
@@ -550,9 +631,10 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
             if text is None:
                 continue
 
-            lines.append(f"## `{rel_path}`")
-            lines.append("")
-            lines.append("```")
+            language = detect_code_fence_language(file_name)
+            lines.append(f"### FILE: {rel_path}")
+            fence = f"```{language}" if language else "```"
+            lines.append(fence)
             lines.append(text.rstrip())
             lines.append("```")
             lines.append("")
