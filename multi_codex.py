@@ -535,8 +535,68 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
     """
     sync_remote_branch(repo_path, branch_name)
 
-    lines: List[str] = []
-    lines.append(f"# Branch `{branch_name}` contents\n")
+    def guess_language_from_filename(filename: str) -> str:
+        ext = os.path.splitext(filename)[1].lower()
+        return {
+            ".py": "python",
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".ts": "typescript",
+            ".tsx": "tsx",
+            ".json": "json",
+            ".yml": "yaml",
+            ".yaml": "yaml",
+            ".md": "markdown",
+            ".sh": "bash",
+            ".bash": "bash",
+            ".zsh": "bash",
+            ".html": "html",
+            ".css": "css",
+            ".scss": "scss",
+            ".rs": "rust",
+            ".go": "go",
+            ".java": "java",
+            ".rb": "ruby",
+            ".php": "php",
+            ".sql": "sql",
+            ".toml": "toml",
+            ".ini": "ini",
+            ".cfg": "ini",
+            ".txt": "text",
+        }.get(ext, "text")
+
+    def build_ascii_tree(paths: List[str], root_name: str) -> str:
+        tree: Dict[str, Dict] = {}
+
+        for path in paths:
+            parts = path.split(os.sep)
+            current = tree
+            for idx, part in enumerate(parts):
+                is_file = idx == len(parts) - 1
+                current = current.setdefault(part, None if is_file else {})  # type: ignore[assignment]
+                if current is None:
+                    break
+
+        def render(node: Dict[str, Dict], prefix: str) -> List[str]:
+            lines: List[str] = []
+            items = sorted(node.items(), key=lambda kv: (kv[1] is None, kv[0]))
+            for i, (name, child) in enumerate(items):
+                is_last = i == len(items) - 1
+                connector = "└── " if is_last else "├── "
+                if child is None:
+                    lines.append(f"{prefix}{connector}{name}")
+                else:
+                    lines.append(f"{prefix}{connector}{name}/")
+                    extension_prefix = "    " if is_last else "│   "
+                    lines.extend(render(child, prefix + extension_prefix))
+            return lines
+
+        rendered_lines = [f"{root_name}/"]
+        rendered_lines.extend(render(tree, ""))
+        return "\n".join(rendered_lines)
+
+    repo_name = os.path.basename(os.path.normpath(repo_path)) or "repository"
+    file_entries: Dict[str, Dict[str, str]] = {}
 
     for root, dirs, files in os.walk(repo_path):
         # prune ignored dirs
@@ -550,12 +610,31 @@ def collect_branch_markdown(repo_path: str, branch_name: str) -> str:
             if text is None:
                 continue
 
-            lines.append(f"## `{rel_path}`")
-            lines.append("")
-            lines.append("```")
-            lines.append(text.rstrip())
-            lines.append("```")
-            lines.append("")
+            file_entries[rel_path] = {
+                "language": guess_language_from_filename(rel_path),
+                "content": text.rstrip(),
+            }
+
+    sorted_paths = sorted(file_entries.keys())
+
+    lines: List[str] = [f"# Project: {repo_name} (Branch: {branch_name})", ""]
+    lines.append("## Project Structure")
+    lines.append("```")
+    lines.append(build_ascii_tree(sorted_paths, repo_name))
+    lines.append("```")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## File Contents")
+    lines.append("")
+
+    for rel_path in sorted_paths:
+        entry = file_entries[rel_path]
+        lines.append(f"### FILE: {rel_path}")
+        lines.append(f"```{entry['language']}")
+        lines.append(entry["content"])
+        lines.append("```")
+        lines.append("")
 
     return "\n".join(lines)
 
