@@ -53,3 +53,19 @@ pip install .
 # Run
 multi-codex
 ```
+
+## Testing
+
+The project ships with a pytest suite that exercises the core workflows (branch collection, diffing, and prompt generation). To run it manually:
+
+```bash
+python -m pytest
+```
+
+To ensure tests execute automatically after each commit, configure Git to use the included hooks and commit as usual:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The `post-commit` hook will launch the test suite and report any failures in the terminal output.
