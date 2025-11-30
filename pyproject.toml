@@ -10,7 +10,10 @@ requires-python = ">=3.9"
 dependencies = []
 
 [tool.setuptools]
-py-modules = ["multi_codex"]
+packages = ["multi_codex", "multi_codex.prompts"]
+
+[tool.setuptools.package-data]
+multi_codex = ["prompts/*.md"]
 
 [project.scripts]
-multi-codex = "multi_codex:main"
+multi-codex = "multi_codex.ui:main"
