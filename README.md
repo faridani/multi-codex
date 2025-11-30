@@ -5,7 +5,7 @@
 # multi-codex
 
 > [!TIP]
-> The next release will include PR analysis and reporting , [please see this issue](https://github.com/faridani/multi-codex/issues/22)
+> The next release will include PR analysis and reporting , [please see this branch for V3](https://github.com/faridani/multi-codex/pull/25)
 
 Multi-codex is a Mac CLI companion for multi solution coding workflows. Tools like Codex allow you to produce up to four different solutions for the same feature. Multi-codex helps you compare those solutions, decide which is best, and spot the smart ideas hiding in the other branches so you can fold them into the winner. The typical flow:
 
