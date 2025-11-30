@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
+import tiktoken
+
 from . import prompts
 
 APP_DIR_NAME = ".multi_codex"
@@ -440,3 +442,14 @@ def build_architecture_report(repo_path: str | Path, branch_name: str) -> str:
 def build_feature_security_report(repo_path: str | Path, branch_name: str) -> str:
     branch_markdown = collect_branch_markdown(repo_path, branch_name)
     return build_single_branch_prompt("feature_security_modernization", branch_markdown)
+
+
+def count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
+    """Estimate token usage for a block of text using tiktoken."""
+
+    try:
+        encoding = tiktoken.get_encoding(encoding_name)
+    except Exception:
+        encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+
+    return len(encoding.encode(text))
