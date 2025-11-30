@@ -113,6 +113,7 @@ def ensure_app_dirs(repo_slug: str) -> tuple[Path, Path]:
 
     repo_path = repos_root / repo_slug
     report_path = reports_root / repo_slug
+    repo_path.mkdir(parents=True, exist_ok=True)
     report_path.mkdir(parents=True, exist_ok=True)
 
     return repo_path, report_path
