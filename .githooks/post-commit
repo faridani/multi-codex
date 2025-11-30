@@ -1,0 +1,10 @@
+#!/bin/sh
+# Run pytest after each commit to validate workflows.
+if command -v python >/dev/null 2>&1; then
+  echo "[post-commit] Running test suite..."
+  if ! python -m pytest; then
+    echo "[post-commit] Tests failed. Review failures above." >&2
+  fi
+else
+  echo "[post-commit] Python not available; skipping tests." >&2
+fi
