@@ -4,7 +4,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from . import prompts
 
@@ -157,14 +157,14 @@ def guess_language_from_path(path: str) -> str:
 def build_tree_from_paths(repo_name: str, paths: List[str]) -> str:
     """Create an ASCII directory tree for the provided file paths."""
 
-    def insert_path(tree: Dict[str, Dict], path: str) -> None:
+    def insert_path(tree: Dict[str, Any], path: str) -> None:
         parts = path.split(os.sep)
         node = tree
         for part in parts[:-1]:
             node = node.setdefault(part, {})
         node[parts[-1]] = None
 
-    def render_tree(tree: Dict[str, Dict], prefix: str = "") -> List[str]:
+    def render_tree(tree: Dict[str, Any], prefix: str = "") -> List[str]:
         rendered: List[str] = []
         entries = sorted(tree.items(), key=lambda item: (item[1] is None, item[0].lower()))
         for idx, (name, child) in enumerate(entries):
@@ -175,7 +175,7 @@ def build_tree_from_paths(repo_name: str, paths: List[str]) -> str:
                 rendered.extend(render_tree(child, prefix + extension))
         return rendered
 
-    tree: Dict[str, Dict] = {}
+    tree: Dict[str, Any] = {}
     for path in paths:
         insert_path(tree, path)
 
@@ -398,9 +398,7 @@ def compute_branch_diff(
     return DiffResult(ok=True, has_changes=True, message="", diff_text=diff_output.strip())
 
 
-def build_pr_mega_prompt(
-    repo_path: str | Path, branch_name: str, base_branch: str = "main"
-) -> str:
+def build_pr_mega_prompt(repo_path: str | Path, branch_name: str, base_branch: str = "main") -> str:
     """Combine long context and git diff into a single PR analysis prompt."""
 
     system_prompt = prompts.load_prompt("pr_long_context")

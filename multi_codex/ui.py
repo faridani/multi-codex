@@ -175,7 +175,9 @@ def prompt_for_branch_selection(repo_path: Path, action_label: str) -> str:
 def prompt_for_project_spec() -> tuple[Optional[str], str]:
     print("\nProvide the specification/design document for this project.")
     print("Option 1: enter a file path.")
-    print("Option 2: press Enter and paste the spec content (finish with a line containing only 'EOF').\n")
+    print(
+        "Option 2: press Enter and paste the spec content (finish with a line containing only 'EOF').\n"
+    )
 
     while True:
         raw = input("Path to spec document (or press Enter to paste it now): ").strip()
@@ -197,7 +199,9 @@ def prompt_for_project_spec() -> tuple[Optional[str], str]:
                 print(f"Error reading spec file: {e}\n")
                 continue
 
-        print("\nPaste the specification content. End input with a single line containing only 'EOF'.")
+        print(
+            "\nPaste the specification content. End input with a single line containing only 'EOF'."
+        )
         lines: List[str] = []
         while True:
             try:
@@ -247,7 +251,9 @@ def copy_to_clipboard(text: str) -> bool:
 
         if shutil.which("xclip") is not None:
             try:
-                subprocess.run(["xclip", "-selection", "clipboard"], input=text, text=True, check=True)
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"], input=text, text=True, check=True
+                )
                 return True
             except subprocess.CalledProcessError:
                 return False
@@ -327,11 +333,11 @@ def monitor_branches(repo_path: Path) -> Dict[str, BranchSpec]:
                         return selected
                 else:
                     print(color_text(f"Skipping branch '{branch}'.", "yellow"))
-                    start_prompt = "Would you like to start analysis with the branches already queued?"
+                    start_prompt = (
+                        "Would you like to start analysis with the branches already queued?"
+                    )
                     if not selected:
-                        start_prompt = (
-                            "Start analysis now even though no branches are queued yet? (You can always resume monitoring.)"
-                        )
+                        start_prompt = "Start analysis now even though no branches are queued yet? (You can always resume monitoring.)"
 
                     if ask_yes_no(
                         color_text(start_prompt, "magenta", bold=True),
@@ -420,7 +426,12 @@ def main() -> None:
                 )
             )
         else:
-            print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
+            print(
+                color_text(
+                    "  • Copy the report from the path above to share with your AI assistant.",
+                    "yellow",
+                )
+            )
 
     elif selected_option == options[1]:
         spec_path, spec_content = prompt_for_project_spec()
@@ -445,7 +456,9 @@ def main() -> None:
             bs.branch_markdown_path = branch_md_path
             print_saved_file("  -> Branch markdown saved to", branch_md_path)
 
-        combined_prompt = core.build_branch_comparison_prompt(spec_path, spec_content, branch_markdown)
+        combined_prompt = core.build_branch_comparison_prompt(
+            spec_path, spec_content, branch_markdown
+        )
         combined_prompt_path = report_path / "combined_spec_and_branches.md"
 
         combined_prompt_path.write_text(combined_prompt, encoding="utf-8")
@@ -483,7 +496,9 @@ def main() -> None:
         print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
 
     elif selected_option == options[2]:
-        branch_name = prompt_for_branch_selection(repo_path, "convert to long context and diff for PR review")
+        branch_name = prompt_for_branch_selection(
+            repo_path, "convert to long context and diff for PR review"
+        )
         base_branch_input = input("Enter the base branch to diff against [main]: ").strip()
         base_branch = base_branch_input or "main"
 
@@ -529,11 +544,21 @@ def main() -> None:
                 )
             )
         else:
-            print(color_text("  • Copy the report from the path above to share with your AI assistant.", "yellow"))
+            print(
+                color_text(
+                    "  • Copy the report from the path above to share with your AI assistant.",
+                    "yellow",
+                )
+            )
 
     if selected_option != options[1]:
         print(color_text("\nDone ✅", "green", bold=True))
-        print(color_text("You can open the markdown file in your editor or share it with your AI assistant.", "grey"))
+        print(
+            color_text(
+                "You can open the markdown file in your editor or share it with your AI assistant.",
+                "grey",
+            )
+        )
         print(color_text("\nThank you for using multi-codex.\n", "cyan", bold=True))
 
 

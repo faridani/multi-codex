@@ -1,4 +1,3 @@
-import os
 import subprocess
 from pathlib import Path
 
@@ -16,7 +15,9 @@ def git_repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "init", "--bare", str(origin)], check=True)
     subprocess.run(["git", "clone", str(origin), str(workdir)], check=True)
 
-    subprocess.run(["git", "-C", str(workdir), "config", "user.email", "you@example.com"], check=True)
+    subprocess.run(
+        ["git", "-C", str(workdir), "config", "user.email", "you@example.com"], check=True
+    )
     subprocess.run(["git", "-C", str(workdir), "config", "user.name", "Your Name"], check=True)
 
     # initial commit on main

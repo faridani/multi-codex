@@ -11,6 +11,12 @@ dependencies = []
 
 [project.optional-dependencies]
 tests = ["pytest>=7"]
+dev = [
+    "black>=24.0",
+    "mypy>=1.8",
+    "pytest>=7",
+    "ruff>=0.4",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -20,3 +26,16 @@ where = ["."]
 
 [project.scripts]
 multi-codex = "multi_codex.ui:main"
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+ignore_missing_imports = true
