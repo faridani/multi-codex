@@ -7,7 +7,11 @@ name = "multi-codex"
 version = "0.1.0"
 description = "GitHub branch evaluator that builds a copy-paste prompt"
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "rich>=13",
+    "tiktoken>=0.7",
+    "typer>=0.12",
+]
 
 [project.optional-dependencies]
 dev = ["pytest"]
