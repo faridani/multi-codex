@@ -746,7 +746,31 @@ def compute_branch_diff(repo_path: str, branch_name: str, base_branch: str = "ma
 
     branch_ref = f"origin/{branch_name}"
     base_ref = f"origin/{base_branch}"
-    diff_output = run_git(repo_path, ["diff", f"{base_ref}...{branch_ref}"])
+
+    def ref_exists(ref: str) -> bool:
+        result = subprocess.run(
+            ["git", "-C", repo_path, "show-ref", "--verify", "--quiet", f"refs/remotes/{ref}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return result.returncode == 0
+
+    missing_refs = [ref for ref in (base_ref, branch_ref) if not ref_exists(ref)]
+    if missing_refs:
+        missing_list = ", ".join(missing_refs)
+        return (
+            "Unable to compute diff because the following references were not found on origin: "
+            f"{missing_list}. Please ensure the branch names are correct and fetched."
+        )
+
+    try:
+        diff_output = run_git(repo_path, ["diff", f"{base_ref}...{branch_ref}"])
+    except subprocess.CalledProcessError:
+        return (
+            f"Failed to compute diff between {branch_ref} and {base_ref}. "
+            "Double-check that both branches exist and try again."
+        )
 
     if not diff_output.strip():
         return f"No differences between {branch_ref} and {base_ref}."
