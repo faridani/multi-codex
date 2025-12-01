@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Set
 
 import tiktoken
 import typer
+from rich import box
+from rich.align import Align
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -23,6 +25,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
+from rich.theme import Theme
 
 from . import core
 
@@ -45,7 +48,17 @@ Multi-branch solution evaluator for GitHub repos.
 """
 
 
-console = Console()
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "danger": "bold red",
+        "success": "green",
+        "muted": "grey53",
+    }
+)
+
+console = Console(theme=custom_theme)
 app = typer.Typer(add_completion=False, help="Generate AI-ready reports for Git branches.")
 
 
@@ -58,7 +71,25 @@ class BranchSpec:
 
 
 def print_banner() -> None:
-    console.print(Panel.fit(Markdown(f"```\n{BANNER}\n```"), border_style="cyan"))
+    styled_banner = Align.center(
+        Markdown(f"```\n{BANNER}\n```"), vertical="middle"
+    )
+    console.print(
+        Panel(
+            styled_banner,
+            border_style="bright_magenta",
+            padding=(1, 2),
+            subtitle="multi-codex",
+            subtitle_align="right",
+        )
+    )
+
+
+def print_section(title: str, subtitle: str | None = None) -> None:
+    rule_title = f"[bold cyan]{title}[/bold cyan]"
+    if subtitle:
+        rule_title += f" [grey53]{subtitle}[/grey53]"
+    console.rule(rule_title)
 
 
 def display_intro() -> None:
@@ -71,7 +102,14 @@ def display_intro() -> None:
         surprise costs.
         """
     ).strip()
-    console.print(Markdown(intro))
+    console.print(
+        Panel(
+            Markdown(intro),
+            box=box.ROUNDED,
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
 
     steps = [
         "Monitor your GitHub repository for new branches in real time.",
@@ -80,13 +118,19 @@ def display_intro() -> None:
         "Assemble polished prompts you can paste straight into your AI UI for analysis and comparison.",
     ]
 
-    table = Table(show_header=True, header_style="bold magenta")
-    table.add_column("Step #", style="cyan", width=8)
+    table = Table(
+        show_header=True,
+        header_style="bold magenta",
+        box=box.ROUNDED,
+        title="How multi-codex helps",
+        title_style="bold bright_white",
+    )
+    table.add_column("Step", style="cyan", width=8, justify="right")
     table.add_column("What I will do for you")
     for idx, step in enumerate(steps, 1):
-        table.add_row(str(idx), step)
+        table.add_row(f"[bold]{idx}[/bold]", step)
 
-    console.print(table)
+    console.print(Panel.fit(table, border_style="bright_black", padding=1))
 
 
 def prompt_repo_url(repo_url: Optional[str]) -> str:
@@ -191,9 +235,14 @@ def select_branch(branches: List[str], prompt: str) -> Optional[str]:
         raise ValueError("No branches available for selection")
 
     while True:
-        console.print(Panel(prompt, style="cyan"))
-        table = Table(show_header=True, header_style="bold magenta")
-        table.add_column("#", width=4, style="cyan")
+        console.print(Panel(prompt, style="cyan", box=box.ROUNDED))
+        table = Table(
+            show_header=True,
+            header_style="bold magenta",
+            box=box.MINIMAL_DOUBLE_HEAD,
+            pad_edge=False,
+        )
+        table.add_column("#", width=4, style="cyan", justify="right")
         table.add_column("Branch", style="green")
         for idx, branch in enumerate(branches, 1):
             table.add_row(str(idx), branch)
@@ -295,6 +344,7 @@ async def monitor_branches(repo_path: Path) -> Dict[str, BranchSpec]:
             "Monitoring origin for fresh branches. When a branch ships, you'll decide whether to add it to the evaluation queue.\n"
             "Start analysis at any time or keep watching for more contenders. Press Ctrl+C when you're ready to switch to analysis.",
             style="cyan",
+            box=box.ROUNDED,
         )
     )
 
@@ -394,6 +444,7 @@ def architecture(
 
     print_banner()
     display_intro()
+    print_section("Architecture report", "Select a branch and assemble the prompt")
 
     _, repo_path, report_path = prepare_repository(repo_url)
     branch_name = branch or prompt_for_branch_selection(repo_path, "analyze for architecture")
@@ -416,6 +467,7 @@ def compare(
 
     print_banner()
     display_intro()
+    print_section("Branch comparison", "Queue branches and merge specs")
 
     _, repo_path, report_path = prepare_repository(repo_url)
     spec_path = None
@@ -484,6 +536,7 @@ def pr_review(
 
     print_banner()
     display_intro()
+    print_section("PR review", "Capture long-context snapshots and diffs")
 
     _, repo_path, report_path = prepare_repository(repo_url)
     branch_name = branch or prompt_for_branch_selection(
@@ -507,6 +560,7 @@ def feature_security(
 
     print_banner()
     display_intro()
+    print_section("Feature & security", "Select a branch to evaluate")
 
     _, repo_path, report_path = prepare_repository(repo_url)
     branch_name = branch or prompt_for_branch_selection(repo_path, "analyze for features and security")
