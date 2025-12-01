@@ -32,7 +32,11 @@ The repository already includes a minimal `pyproject.toml`, so you can install a
 
 ```bash
 python -m pip install --upgrade pip
+
+
 pip install .
+or
+python3.10 -m pip install .
 ```
 
 After installation, `multi-codex` is available on your PATH. Use it in any directory with:
