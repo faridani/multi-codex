@@ -8,10 +8,12 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 import tiktoken
 import typer
+from rich import box
+from rich.align import Align
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -23,6 +25,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
+from rich.theme import Theme
 
 from . import core
 
@@ -45,8 +48,27 @@ Multi-branch solution evaluator for GitHub repos.
 """
 
 
-console = Console()
-app = typer.Typer(add_completion=False, help="Generate AI-ready reports for Git branches.")
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "danger": "bold red",
+        "success": "green",
+        "muted": "grey53",
+    }
+)
+
+console = Console(theme=custom_theme)
+
+
+@dataclass
+class MenuAction:
+    """Represents a menu item in the interactive flow."""
+
+    key: str
+    title: str
+    description: str
+    handler: Callable[[Path, Path], None]
 
 
 @dataclass
@@ -58,7 +80,25 @@ class BranchSpec:
 
 
 def print_banner() -> None:
-    console.print(Panel.fit(Markdown(f"```\n{BANNER}\n```"), border_style="cyan"))
+    styled_banner = Align.center(
+        Markdown(f"```\n{BANNER}\n```"), vertical="middle"
+    )
+    console.print(
+        Panel(
+            styled_banner,
+            border_style="bright_magenta",
+            padding=(1, 2),
+            subtitle="multi-codex",
+            subtitle_align="right",
+        )
+    )
+
+
+def print_section(title: str, subtitle: str | None = None) -> None:
+    rule_title = f"[bold cyan]{title}[/bold cyan]"
+    if subtitle:
+        rule_title += f" [grey53]{subtitle}[/grey53]"
+    console.rule(rule_title)
 
 
 def display_intro() -> None:
@@ -71,7 +111,14 @@ def display_intro() -> None:
         surprise costs.
         """
     ).strip()
-    console.print(Markdown(intro))
+    console.print(
+        Panel(
+            Markdown(intro),
+            box=box.ROUNDED,
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
 
     steps = [
         "Monitor your GitHub repository for new branches in real time.",
@@ -80,13 +127,19 @@ def display_intro() -> None:
         "Assemble polished prompts you can paste straight into your AI UI for analysis and comparison.",
     ]
 
-    table = Table(show_header=True, header_style="bold magenta")
-    table.add_column("Step #", style="cyan", width=8)
+    table = Table(
+        show_header=True,
+        header_style="bold magenta",
+        box=box.ROUNDED,
+        title="How multi-codex helps",
+        title_style="bold bright_white",
+    )
+    table.add_column("Step", style="cyan", width=8, justify="right")
     table.add_column("What I will do for you")
     for idx, step in enumerate(steps, 1):
-        table.add_row(str(idx), step)
+        table.add_row(f"[bold]{idx}[/bold]", step)
 
-    console.print(table)
+    console.print(Panel.fit(table, border_style="bright_black", padding=1))
 
 
 def prompt_repo_url(repo_url: Optional[str]) -> str:
@@ -191,9 +244,14 @@ def select_branch(branches: List[str], prompt: str) -> Optional[str]:
         raise ValueError("No branches available for selection")
 
     while True:
-        console.print(Panel(prompt, style="cyan"))
-        table = Table(show_header=True, header_style="bold magenta")
-        table.add_column("#", width=4, style="cyan")
+        console.print(Panel(prompt, style="cyan", box=box.ROUNDED))
+        table = Table(
+            show_header=True,
+            header_style="bold magenta",
+            box=box.MINIMAL_DOUBLE_HEAD,
+            pad_edge=False,
+        )
+        table.add_column("#", width=4, style="cyan", justify="right")
         table.add_column("Branch", style="green")
         for idx, branch in enumerate(branches, 1):
             table.add_row(str(idx), branch)
@@ -295,6 +353,7 @@ async def monitor_branches(repo_path: Path) -> Dict[str, BranchSpec]:
             "Monitoring origin for fresh branches. When a branch ships, you'll decide whether to add it to the evaluation queue.\n"
             "Start analysis at any time or keep watching for more contenders. Press Ctrl+C when you're ready to switch to analysis.",
             style="cyan",
+            box=box.ROUNDED,
         )
     )
 
@@ -385,18 +444,9 @@ def prepare_repository(repo_url: Optional[str]) -> tuple[str, Path, Path]:
     return repo_url_value, repo_path, report_path
 
 
-@app.command()
-def architecture(
-    repo_url: Optional[str] = typer.Option(None, help="Repository URL to analyze."),
-    branch: Optional[str] = typer.Option(None, help="Branch to analyze for architecture."),
-) -> None:
-    """Analyze the architecture of a branch and produce an architectural report."""
-
-    print_banner()
-    display_intro()
-
-    _, repo_path, report_path = prepare_repository(repo_url)
-    branch_name = branch or prompt_for_branch_selection(repo_path, "analyze for architecture")
+def run_architecture(repo_path: Path, report_path: Path) -> None:
+    print_section("Architecture report", "Select a branch and assemble the prompt")
+    branch_name = prompt_for_branch_selection(repo_path, "analyze for architecture")
     console.print(f"\n[cyan]Preparing architectural report prompt for branch: {branch_name}[/cyan]\n")
     combined_prompt = core.build_architecture_report(repo_path, branch_name)
 
@@ -407,29 +457,9 @@ def architecture(
     console.print("\n[cyan]Done ✅ You can open the markdown file in your editor or share it with your AI assistant.[/cyan]")
 
 
-@app.command()
-def compare(
-    repo_url: Optional[str] = typer.Option(None, help="Repository URL to compare branches for."),
-    spec: Optional[str] = typer.Option(None, help="Optional path to the project specification."),
-) -> None:
-    """Compare branches and select the best one."""
-
-    print_banner()
-    display_intro()
-
-    _, repo_path, report_path = prepare_repository(repo_url)
-    spec_path = None
-    spec_content = ""
-    if spec:
-        try:
-            with open(spec, "r", encoding="utf-8") as f:
-                spec_content = f.read()
-            spec_path = spec
-        except Exception as exc:  # noqa: BLE001
-            console.print(f"[red]Failed to read spec at {spec}: {exc}[/red]")
-            raise typer.Exit(code=1)
-    else:
-        spec_path, spec_content = prompt_for_project_spec()
+def run_compare(repo_path: Path, report_path: Path) -> None:
+    print_section("Branch comparison", "Queue branches and merge specs")
+    spec_path, spec_content = prompt_for_project_spec()
 
     branch_specs = asyncio.run(monitor_branches(repo_path))
 
@@ -474,21 +504,12 @@ def compare(
     console.print("\n[cyan]Done ✅ Thank you for using multi-codex.[/cyan]\n")
 
 
-@app.command("pr-review")
-def pr_review(
-    repo_url: Optional[str] = typer.Option(None, help="Repository URL to analyze."),
-    branch: Optional[str] = typer.Option(None, help="PR branch to analyze."),
-    base_branch: str = typer.Option("main", help="Base branch to diff against."),
-) -> None:
-    """Prepare a PR review mega prompt with long context and a diff against the base branch."""
-
-    print_banner()
-    display_intro()
-
-    _, repo_path, report_path = prepare_repository(repo_url)
-    branch_name = branch or prompt_for_branch_selection(
+def run_pr_review(repo_path: Path, report_path: Path) -> None:
+    print_section("PR review", "Capture long-context snapshots and diffs")
+    branch_name = prompt_for_branch_selection(
         repo_path, "convert to long context and diff for PR review"
     )
+    base_branch = typer.prompt("Base branch to diff against", default="main").strip()
     console.print(f"\n[cyan]Building long-context snapshot for PR branch: {branch_name}[/cyan]\n")
     combined_prompt = core.build_pr_mega_prompt(repo_path, branch_name, base_branch)
 
@@ -498,18 +519,9 @@ def pr_review(
     save_and_notify(combined_prompt, output_path, "PR review mega prompt")
 
 
-@app.command("feature-security")
-def feature_security(
-    repo_url: Optional[str] = typer.Option(None, help="Repository URL to analyze."),
-    branch: Optional[str] = typer.Option(None, help="Branch to analyze for features and security."),
-) -> None:
-    """Analyze a branch for features, security, and modernization opportunities."""
-
-    print_banner()
-    display_intro()
-
-    _, repo_path, report_path = prepare_repository(repo_url)
-    branch_name = branch or prompt_for_branch_selection(repo_path, "analyze for features and security")
+def run_feature_security(repo_path: Path, report_path: Path) -> None:
+    print_section("Feature & security", "Select a branch to evaluate")
+    branch_name = prompt_for_branch_selection(repo_path, "analyze for features and security")
     console.print(f"\n[cyan]Preparing feature and security analysis for branch: {branch_name}[/cyan]\n")
     combined_prompt = core.build_feature_security_report(repo_path, branch_name)
 
@@ -520,8 +532,99 @@ def feature_security(
     console.print("\n[cyan]Done ✅ You can open the markdown file in your editor or share it with your AI assistant.[/cyan]")
 
 
+def choose_action(actions: List[MenuAction]) -> Optional[MenuAction]:
+    console.print(
+        Panel(
+            "Select the workflow you want to run after connecting to your repository.",
+            style="cyan",
+            box=box.ROUNDED,
+        )
+    )
+
+    while True:
+        table = Table(
+            show_header=True,
+            header_style="bold magenta",
+            box=box.ROUNDED,
+            title="Available workflows",
+            title_style="bold bright_white",
+        )
+        table.add_column("#", justify="right", width=4, style="cyan")
+        table.add_column("Action", style="green")
+        table.add_column("Description", style="white")
+
+        for idx, action in enumerate(actions, start=1):
+            table.add_row(str(idx), action.title, action.description)
+
+        console.print(table)
+        choice = typer.prompt(
+            "Enter a number to start a workflow (or press Enter to exit)", default=""
+        ).strip()
+
+        if not choice:
+            return None
+
+        if choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(actions):
+                return actions[idx - 1]
+
+        console.print("[yellow]Invalid choice. Please pick one of the numbered options.[/yellow]\n")
+
+
+def launch_interactive() -> None:
+    print_banner()
+    display_intro()
+
+    console.print(
+        Panel(
+            "Let's get your repository ready. I'll clone it locally if needed, then you can pick what to do next.",
+            style="magenta",
+            box=box.ROUNDED,
+        )
+    )
+
+    _, repo_path, report_path = prepare_repository(None)
+
+    actions = [
+        MenuAction(
+            key="architecture",
+            title="Architecture",
+            description="Analyze the architecture of a branch and produce an architectural report.",
+            handler=run_architecture,
+        ),
+        MenuAction(
+            key="compare",
+            title="Compare",
+            description="Compare branches and select the best one.",
+            handler=run_compare,
+        ),
+        MenuAction(
+            key="pr-review",
+            title="PR review",
+            description="Prepare a PR review mega prompt with long context and a diff against the base branch.",
+            handler=run_pr_review,
+        ),
+        MenuAction(
+            key="feature-security",
+            title="Feature & security",
+            description="Analyze a branch for features, security, and modernization opportunities.",
+            handler=run_feature_security,
+        ),
+    ]
+
+    action = choose_action(actions)
+
+    if action is None:
+        console.print("[yellow]No action selected. Exiting.[/yellow]")
+        raise typer.Exit(code=0)
+
+    console.print(f"\n[cyan]Starting: {action.title}[/cyan]\n")
+    action.handler(repo_path, report_path)
+
+
 def main() -> None:
-    app()
+    launch_interactive()
 
 
 if __name__ == "__main__":
