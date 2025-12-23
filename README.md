@@ -56,6 +56,14 @@ pip install .
 multi-codex
 ```
 
+## Uninstall 
+
+To remove previously installed versions of multi-codex simply run 
+
+```bash
+python3.10 -m pip uninstall -y multi-codex
+```
+
 ## Testing
 
 The project ships with a pytest suite that exercises the core workflows (branch collection, diffing, and prompt generation). To run it manually:
