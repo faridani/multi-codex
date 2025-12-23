@@ -49,13 +49,13 @@ BANNER_LINES = [
 
 LOGO_LINE_COUNT = 7
 BANNER_COLORS = [
-    "grey93",
-    "grey85",
-    "grey76",
-    "grey68",
-    "grey60",
-    "grey52",
-    "grey44",
+    "#4796E4",
+    "#5A8EDB",
+    "#6E86D3",
+    "#847ACE",
+    "#9B73B8",
+    "#B46FA1",
+    "#C3677F",
 ]
 
 
