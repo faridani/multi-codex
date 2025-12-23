@@ -26,6 +26,7 @@ from rich.progress import (
 )
 from rich.table import Table
 from rich.theme import Theme
+from rich.text import Text
 
 from . import core
 
@@ -80,8 +81,20 @@ class BranchSpec:
 
 
 def print_banner() -> None:
+    banner_colors = [
+        "bright_magenta",
+        "bright_cyan",
+        "bright_blue",
+        "bright_green",
+        "bright_yellow",
+        "bright_red",
+    ]
+    banner_text = Text()
+    for idx, line in enumerate(BANNER.strip("\n").splitlines()):
+        banner_text.append(f"{line}\n", style=banner_colors[idx % len(banner_colors)])
     styled_banner = Align.center(
-        Markdown(f"```\n{BANNER}\n```"), vertical="middle"
+        banner_text,
+        vertical="middle",
     )
     console.print(
         Panel(
