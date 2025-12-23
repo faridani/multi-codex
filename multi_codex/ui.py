@@ -26,26 +26,41 @@ from rich.progress import (
 )
 from rich.table import Table
 from rich.theme import Theme
+from rich.text import Text
 
 from . import core
 
 POLL_INTERVAL_SECONDS = 30
 TOKEN_WARNING_THRESHOLD = 128_000
 
-BANNER = r"""
-░███     ░███            ░██    ░██    ░██                             ░██
-░████   ░████            ░██    ░██                                    ░██
-░██░██ ░██░██ ░██    ░██ ░██ ░████████ ░██ ░███████   ░███████   ░████████  ░███████  ░██    ░██
-░██ ░████ ░██ ░██    ░██ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██    ░██ ░██    ░██  ░██  ░██
-░██  ░██  ░██ ░██    ░██ ░██    ░██    ░██░██        ░██    ░██ ░██    ░██ ░█████████   ░█████
-░██       ░██ ░██   ░███ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██   ░███ ░██         ░██  ░██
-░██       ░██  ░█████░██ ░██     ░████ ░██ ░███████   ░███████   ░█████░██  ░███████  ░██    ░██
+BANNER_ART = [
+    "░███     ░███            ░██    ░██    ░██                             ░██",
+    "░████   ░████            ░██    ░██                                    ░██",
+    "░██░██ ░██░██ ░██    ░██ ░██ ░████████ ░██ ░███████   ░███████   ░████████  ░███████  ░██    ░██",
+    "░██ ░████ ░██ ░██    ░██ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██    ░██ ░██    ░██  ░██  ░██",
+    "░██  ░██  ░██ ░██    ░██ ░██    ░██    ░██░██        ░██    ░██ ░██    ░██ ░█████████   ░█████",
+    "░██       ░██ ░██   ░███ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██   ░███ ░██         ░██  ░██",
+    "░██       ░██  ░█████░██ ░██     ░████ ░██ ░███████   ░███████   ░█████░██  ░███████  ░██    ░██",
+]
+BANNER_TAGLINE = "Multi-branch solution evaluator for GitHub repos."
 
 
-
-
-Multi-branch solution evaluator for GitHub repos.
-"""
+def build_banner_text() -> Text:
+    colors = [
+        "bright_magenta",
+        "bright_cyan",
+        "bright_blue",
+        "bright_green",
+        "bright_yellow",
+        "bright_red",
+    ]
+    text = Text()
+    for index, line in enumerate(BANNER_ART):
+        style = f"bold {colors[index % len(colors)]}"
+        text.append(line + "\n", style=style)
+    text.append("\n")
+    text.append(BANNER_TAGLINE, style="muted")
+    return text
 
 
 custom_theme = Theme(
@@ -80,9 +95,7 @@ class BranchSpec:
 
 
 def print_banner() -> None:
-    styled_banner = Align.center(
-        Markdown(f"```\n{BANNER}\n```"), vertical="middle"
-    )
+    styled_banner = Align.center(build_banner_text(), vertical="middle")
     console.print(
         Panel(
             styled_banner,
