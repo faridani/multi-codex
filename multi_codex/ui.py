@@ -26,6 +26,7 @@ from rich.progress import (
 )
 from rich.table import Table
 from rich.theme import Theme
+from rich.text import Text
 
 from . import core
 
@@ -79,10 +80,27 @@ class BranchSpec:
     branch_markdown_path: Optional[Path] = None
 
 
+def build_color_banner() -> Text:
+    colors = [
+        "bright_magenta",
+        "bright_cyan",
+        "bright_blue",
+        "bright_green",
+        "bright_yellow",
+        "bright_red",
+    ]
+    banner_text = Text()
+    lines = BANNER.splitlines()
+    for index, line in enumerate(lines):
+        style = colors[index % len(colors)]
+        banner_text.append(line, style=style)
+        if index < len(lines) - 1:
+            banner_text.append("\n")
+    return banner_text
+
+
 def print_banner() -> None:
-    styled_banner = Align.center(
-        Markdown(f"```\n{BANNER}\n```"), vertical="middle"
-    )
+    styled_banner = Align.center(build_color_banner(), vertical="middle")
     console.print(
         Panel(
             styled_banner,
