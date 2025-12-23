@@ -573,7 +573,7 @@ def run_compare(repo_path: Path, report_path: Path) -> None:
     console.print("  (Contents intentionally not printed to avoid console noise)\n")
 
     copied = copy_to_clipboard(combined_prompt)
-    console.print("[magenta]Next step: share with your AI assistant (Claude, ChatGPT, Gemini, etc.)[/magenta]")
+    print_status("Next step: share with your AI assistant (Claude, ChatGPT, Gemini, etc.)", "info")
     if copied:
         print_status("Combined prompt copied to your clipboard.", "success")
     else:
