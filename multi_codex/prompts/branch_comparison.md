@@ -13,4 +13,5 @@ Your mission:
   1) A concise rationale for which branch is best.
   2) The single best branch name.
   3) The features the best branch is missing or only partially implements.
+  4) A prompt for a coding AI to implement the missing features in the best branch. This prompt should clearly describe what to add, based on features present in other branches, but without naming those branches.
 Be crisp and evidence-driven.

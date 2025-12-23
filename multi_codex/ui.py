@@ -10,11 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
+import questionary
 import tiktoken
 import typer
+from questionary import Style as QStyle
 from rich import box
 from rich.align import Align
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.progress import (
@@ -24,11 +27,35 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
 from . import core
+
+# Terminal and status icons (inspired by Claude Code)
+ICON_TERMINAL = "❯"  # Terminal prompt indicator
+ICON_THINKING = "◐"  # Thinking/processing indicator
+ICON_SUCCESS = "✓"
+ICON_WARNING = "⚠"
+ICON_ERROR = "✗"
+ICON_ARROW = "→"
+ICON_BULLET = "•"
+ICON_BRANCH = "⎇"
+ICON_WORKFLOW = "⚡"
+
+# Questionary custom style for arrow-key navigation
+QUESTIONARY_STYLE = QStyle([
+    ("qmark", "fg:#E91E63 bold"),
+    ("question", "bold"),
+    ("answer", "fg:#2196F3 bold"),
+    ("pointer", "fg:#E91E63 bold"),
+    ("highlighted", "fg:#E91E63 bold"),
+    ("selected", "fg:#2196F3"),
+    ("separator", "fg:#6C6C6C"),
+    ("instruction", "fg:#808080"),
+])
 
 POLL_INTERVAL_SECONDS = 30
 TOKEN_WARNING_THRESHOLD = 128_000
@@ -120,14 +147,42 @@ def print_section(title: str, subtitle: str | None = None) -> None:
     console.rule(rule_title)
 
 
+def show_thinking(message: str = "Thinking") -> Live:
+    """Create a live display showing a thinking/processing indicator."""
+    spinner = Spinner("dots", text=f"[cyan]{message}...[/cyan]", style="cyan")
+    return Live(spinner, console=console, refresh_per_second=10, transient=True)
+
+
+def print_status(message: str, status: str = "info") -> None:
+    """Print a status message with appropriate icon."""
+    icons = {
+        "success": (ICON_SUCCESS, "green"),
+        "warning": (ICON_WARNING, "yellow"),
+        "error": (ICON_ERROR, "red"),
+        "info": (ICON_BULLET, "cyan"),
+        "thinking": (ICON_THINKING, "magenta"),
+    }
+    icon, color = icons.get(status, (ICON_BULLET, "white"))
+    console.print(f"[{color}]{icon}[/{color}] {message}")
+
+
 def display_intro() -> None:
     intro = textwrap.dedent(
         """
-        Multi-codex is your branch evaluator for Codex-style multi-solution workflows.
-        Ask Codex for up to four different solutions, push each as its own branch, and let multi-codex
-        gather them into a single, AI-ready brief. It highlights what each branch does well and what
-        the winning branch should borrow from the others—all without calling the OpenAI API or adding
-        surprise costs.
+        **Multi-codex** is your intelligent code analysis companion for GitHub repositories.
+
+        Whether you're evaluating multiple solution branches from Codex-style workflows,
+        reviewing pull requests, analyzing architecture, or hunting for security vulnerabilities—
+        multi-codex helps you understand your codebase deeply and leverage AI coders effectively.
+
+        **Key capabilities:**
+        - 🔀 Compare many branches and identify the best approach
+        - 🔍 Understand your codebase structure and architecture
+        - 🛡️ Find security vulnerabilities and modernization opportunities
+        - 📋 Prepare comprehensive PR reviews with full context
+        - 🤖 Generate AI-ready prompts for Claude, ChatGPT, Gemini, Grok, DeepSeek, and other models
+
+        All analysis runs locally—no API calls, no surprise costs.
         """
     ).strip()
     console.print(
@@ -136,27 +191,30 @@ def display_intro() -> None:
             box=box.ROUNDED,
             border_style="cyan",
             padding=(1, 2),
+            title=f"[bold cyan]{ICON_TERMINAL} Welcome[/bold cyan]",
+            title_align="left",
         )
     )
 
     steps = [
-        "Monitor your GitHub repository for new branches in real time.",
-        "Guide you through selecting the branches and attaching your spec or design doc.",
-        "Generate rich markdown snapshots for every branch you pick.",
-        "Assemble polished prompts you can paste straight into your AI UI for analysis and comparison.",
+        (f"{ICON_BRANCH} Monitor", "Watch your GitHub repository for new branches in real time"),
+        (f"{ICON_ARROW} Guide", "Walk you through selecting branches and attaching specs or design docs"),
+        (f"{ICON_BULLET} Snapshot", "Generate rich markdown snapshots of your entire codebase"),
+        (f"{ICON_WORKFLOW} Analyze", "Run architecture, security, and feature analysis on any branch"),
+        (f"{ICON_SUCCESS} Deliver", "Assemble polished prompts ready for your favorite AI coding assistant"),
     ]
 
     table = Table(
         show_header=True,
         header_style="bold magenta",
         box=box.ROUNDED,
-        title="How multi-codex helps",
+        title=f"{ICON_WORKFLOW} How multi-codex helps",
         title_style="bold bright_white",
     )
-    table.add_column("Step", style="cyan", width=8, justify="right")
-    table.add_column("What I will do for you")
-    for idx, step in enumerate(steps, 1):
-        table.add_row(f"[bold]{idx}[/bold]", step)
+    table.add_column("Action", style="cyan", width=14)
+    table.add_column("What I will do for you", style="white")
+    for action, description in steps:
+        table.add_row(f"[bold]{action}[/bold]", description)
 
     console.print(Panel.fit(table, border_style="bright_black", padding=1))
 
@@ -262,40 +320,36 @@ def select_branch(branches: List[str], prompt: str) -> Optional[str]:
     if not branches:
         raise ValueError("No branches available for selection")
 
-    while True:
-        console.print(Panel(prompt, style="cyan", box=box.ROUNDED))
-        table = Table(
-            show_header=True,
-            header_style="bold magenta",
-            box=box.MINIMAL_DOUBLE_HEAD,
-            pad_edge=False,
+    console.print(
+        Panel(
+            f"{ICON_BRANCH} {prompt}\n\n"
+            f"Use [bold]↑/↓ arrow keys[/bold] to navigate, [bold]Enter[/bold] to select.",
+            style="cyan",
+            box=box.ROUNDED,
+            title=f"[bold cyan]{ICON_BRANCH} Branch Selection[/bold cyan]",
+            title_align="left",
         )
-        table.add_column("#", width=4, style="cyan", justify="right")
-        table.add_column("Branch", style="green")
-        for idx, branch in enumerate(branches, 1):
-            table.add_row(str(idx), branch)
-        console.print(table)
+    )
 
-        choice = typer.prompt("Select a branch by number or name (or press Enter to cancel)", default="")
-        choice = choice.strip()
-        if not choice:
-            return None
+    # Build choices for questionary
+    choices = [questionary.Choice(title=f"{ICON_BRANCH} {branch}", value=branch) for branch in branches]
+    choices.append(questionary.Choice(title=f"[Cancel] {ICON_ARROW} Go back", value=None))
 
-        if choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(branches):
-                return branches[idx - 1]
-            console.print("[yellow]Invalid branch number. Please choose a listed option.[/yellow]\n")
-            continue
+    selected = questionary.select(
+        f"{ICON_TERMINAL} Select a branch:",
+        choices=choices,
+        style=QUESTIONARY_STYLE,
+        qmark=ICON_BRANCH,
+        pointer=f"{ICON_TERMINAL}",
+        instruction="(Use arrow keys, Enter to select)",
+    ).ask()
 
-        if choice in branches:
-            return choice
-
-        console.print("[yellow]Branch not recognized. Enter a listed number or an exact branch name.[/yellow]\n")
+    return selected
 
 
 def prompt_for_branch_selection(repo_path: Path, action_label: str) -> str:
-    core.run_git(repo_path, ["fetch", "origin", "--prune"])
+    with show_thinking("Fetching branches"):
+        core.run_git(repo_path, ["fetch", "origin", "--prune"])
     branches = sorted(core.get_remote_branch_names(repo_path))
 
     if not branches:
@@ -466,14 +520,16 @@ def prepare_repository(repo_url: Optional[str]) -> tuple[str, Path, Path]:
 def run_architecture(repo_path: Path, report_path: Path) -> None:
     print_section("Architecture report", "Select a branch and assemble the prompt")
     branch_name = prompt_for_branch_selection(repo_path, "analyze for architecture")
-    console.print(f"\n[cyan]Preparing architectural report prompt for branch: {branch_name}[/cyan]\n")
-    combined_prompt = core.build_architecture_report(repo_path, branch_name)
+
+    print_status(f"Analyzing architecture for branch: {branch_name}", "thinking")
+    with show_thinking("Generating architecture report"):
+        combined_prompt = core.build_architecture_report(repo_path, branch_name)
 
     branch_slug = core.slugify_branch_name(branch_name)
     output_path = report_path / f"architecture_report_{branch_slug}.md"
     save_and_notify(combined_prompt, output_path, "Architectural report prompt")
 
-    console.print("\n[cyan]Done ✅ You can open the markdown file in your editor or share it with your AI assistant.[/cyan]")
+    print_status("Done! Open the markdown file in your editor or share with your AI assistant.", "success")
 
 
 def run_compare(repo_path: Path, report_path: Path) -> None:
@@ -483,44 +539,48 @@ def run_compare(repo_path: Path, report_path: Path) -> None:
     branch_specs = asyncio.run(monitor_branches(repo_path))
 
     if not branch_specs:
-        console.print("[yellow]No branches were selected for evaluation. Exiting.[/yellow]")
+        print_status("No branches were selected for evaluation. Exiting.", "warning")
         return
 
-    console.print("[cyan]Generating markdown snapshot for each selected branch...[/cyan]\n")
+    print_status("Generating markdown snapshot for each selected branch...", "thinking")
     branch_markdown: Dict[str, str] = {}
 
     for branch_name, bs in branch_specs.items():
-        console.print(f"Processing branch: [green]{branch_name}[/green]")
-        md_text = core.collect_branch_markdown(repo_path, branch_name)
+        with show_thinking(f"Processing branch: {branch_name}"):
+            md_text = core.collect_branch_markdown(repo_path, branch_name)
         branch_markdown[branch_name] = md_text
 
         branch_slug = core.slugify_branch_name(branch_name)
         branch_md_path = report_path / f"branch_{branch_slug}.md"
         branch_md_path.write_text(md_text, encoding="utf-8")
         bs.branch_markdown_path = branch_md_path
-        print_saved_file("  -> Branch markdown saved to", branch_md_path)
+        print_status(f"Branch markdown saved: {branch_md_path}", "success")
 
-    combined_prompt = core.build_branch_comparison_prompt(spec_path, spec_content, branch_markdown)
+    with show_thinking("Building comparison prompt"):
+        combined_prompt = core.build_branch_comparison_prompt(spec_path, spec_content, branch_markdown)
     combined_prompt_path = report_path / "combined_spec_and_branches.md"
 
     combined_prompt_path.write_text(combined_prompt, encoding="utf-8")
 
-    console.print(Panel("Combined markdown saved.", style="magenta", title="Completed"))
-    print_saved_file("  -> Path", combined_prompt_path)
+    console.print(
+        Panel(
+            f"{ICON_SUCCESS} Combined markdown saved.",
+            style="magenta",
+            title="Completed",
+        )
+    )
+    print_saved_file(f"  {ICON_ARROW} Path", combined_prompt_path)
     console.print("  (Contents intentionally not printed to avoid console noise)\n")
 
     copied = copy_to_clipboard(combined_prompt)
-    console.print("[magenta]Next step: share with ChatGPT.[/magenta]")
+    print_status("Next step: share with your AI assistant (Claude, ChatGPT, Gemini, etc.)", "info")
     if copied:
-        console.print("  • [green]Combined prompt copied to your clipboard.[/green]")
+        print_status("Combined prompt copied to your clipboard.", "success")
     else:
-        console.print("  • [yellow]Copy the combined prompt file to your clipboard from the path above.[/yellow]")
-    console.print(
-        "  • [grey]Open https://chatgpt.com/ and paste the contents into the UI to run the branch analysis.[/grey]"
-    )
+        print_status("Copy the combined prompt file to your clipboard from the path above.", "warning")
 
     warn_if_large("Combined spec and branches prompt", combined_prompt)
-    console.print("\n[cyan]Done ✅ Thank you for using multi-codex.[/cyan]\n")
+    print_status("Done! Thank you for using multi-codex.", "success")
 
 
 def run_pr_review(repo_path: Path, report_path: Path) -> None:
@@ -528,9 +588,11 @@ def run_pr_review(repo_path: Path, report_path: Path) -> None:
     branch_name = prompt_for_branch_selection(
         repo_path, "convert to long context and diff for PR review"
     )
-    base_branch = typer.prompt("Base branch to diff against", default="main").strip()
-    console.print(f"\n[cyan]Building long-context snapshot for PR branch: {branch_name}[/cyan]\n")
-    combined_prompt = core.build_pr_mega_prompt(repo_path, branch_name, base_branch)
+    base_branch = typer.prompt(f"{ICON_TERMINAL} Base branch to diff against", default="main").strip()
+
+    print_status(f"Building long-context snapshot for PR: {branch_name} vs {base_branch}", "thinking")
+    with show_thinking("Generating PR review mega prompt"):
+        combined_prompt = core.build_pr_mega_prompt(repo_path, branch_name, base_branch)
 
     branch_slug = core.slugify_branch_name(branch_name)
     base_slug = core.slugify_branch_name(base_branch)
@@ -541,54 +603,56 @@ def run_pr_review(repo_path: Path, report_path: Path) -> None:
 def run_feature_security(repo_path: Path, report_path: Path) -> None:
     print_section("Feature & security", "Select a branch to evaluate")
     branch_name = prompt_for_branch_selection(repo_path, "analyze for features and security")
-    console.print(f"\n[cyan]Preparing feature and security analysis for branch: {branch_name}[/cyan]\n")
-    combined_prompt = core.build_feature_security_report(repo_path, branch_name)
+
+    print_status(f"Analyzing features and security for branch: {branch_name}", "thinking")
+    with show_thinking("Generating feature and security report"):
+        combined_prompt = core.build_feature_security_report(repo_path, branch_name)
 
     branch_slug = core.slugify_branch_name(branch_name)
     output_path = report_path / f"feature_security_report_{branch_slug}.md"
     save_and_notify(combined_prompt, output_path, "Feature and security report")
 
-    console.print("\n[cyan]Done ✅ You can open the markdown file in your editor or share it with your AI assistant.[/cyan]")
+    print_status("Done! Open the markdown file in your editor or share with your AI assistant.", "success")
 
 
 def choose_action(actions: List[MenuAction]) -> Optional[MenuAction]:
     console.print(
         Panel(
-            "Select the workflow you want to run after connecting to your repository.",
+            f"{ICON_TERMINAL} Select a workflow using [bold]↑/↓ arrow keys[/bold] and press [bold]Enter[/bold] to confirm.",
             style="cyan",
             box=box.ROUNDED,
+            title=f"[bold cyan]{ICON_WORKFLOW} Available Workflows[/bold cyan]",
+            title_align="left",
         )
     )
 
-    while True:
-        table = Table(
-            show_header=True,
-            header_style="bold magenta",
-            box=box.ROUNDED,
-            title="Available workflows",
-            title_style="bold bright_white",
-        )
-        table.add_column("#", justify="right", width=4, style="cyan")
-        table.add_column("Action", style="green")
-        table.add_column("Description", style="white")
+    # Build choices for questionary with descriptions
+    choices = []
+    for action in actions:
+        # Format: "Title - Description"
+        label = f"{action.title} {ICON_ARROW} {action.description}"
+        choices.append(questionary.Choice(title=label, value=action.key))
 
-        for idx, action in enumerate(actions, start=1):
-            table.add_row(str(idx), action.title, action.description)
+    choices.append(questionary.Choice(title=f"[Exit] {ICON_ARROW} Cancel and exit multi-codex", value="exit"))
 
-        console.print(table)
-        choice = typer.prompt(
-            "Enter a number to start a workflow (or press Enter to exit)", default=""
-        ).strip()
+    selected = questionary.select(
+        f"{ICON_TERMINAL} Choose a workflow:",
+        choices=choices,
+        style=QUESTIONARY_STYLE,
+        qmark=ICON_WORKFLOW,
+        pointer=f"{ICON_TERMINAL}",
+        instruction="(Use arrow keys to navigate, Enter to select)",
+    ).ask()
 
-        if not choice:
-            return None
+    if selected is None or selected == "exit":
+        return None
 
-        if choice.isdigit():
-            idx = int(choice)
-            if 1 <= idx <= len(actions):
-                return actions[idx - 1]
+    # Find and return the matching action
+    for action in actions:
+        if action.key == selected:
+            return action
 
-        console.print("[yellow]Invalid choice. Please pick one of the numbered options.[/yellow]\n")
+    return None
 
 
 def launch_interactive() -> None:
@@ -597,37 +661,41 @@ def launch_interactive() -> None:
 
     console.print(
         Panel(
-            "Let's get your repository ready. I'll clone it locally if needed, then you can pick what to do next.",
+            f"{ICON_TERMINAL} Let's get your repository ready. "
+            "I'll clone it locally if needed, then you can pick what to do next.",
             style="magenta",
             box=box.ROUNDED,
+            title=f"[bold magenta]{ICON_WORKFLOW} Getting Started[/bold magenta]",
+            title_align="left",
         )
     )
 
     _, repo_path, report_path = prepare_repository(None)
+    print_status("Repository ready!", "success")
 
     actions = [
         MenuAction(
             key="architecture",
-            title="Architecture",
+            title="🏗️  Architecture",
             description="Analyze the architecture of a branch and produce an architectural report.",
             handler=run_architecture,
         ),
         MenuAction(
             key="compare",
-            title="Compare",
+            title="🔀 Compare",
             description="Compare branches and select the best one.",
             handler=run_compare,
         ),
         MenuAction(
             key="pr-review",
-            title="PR review",
-            description="Prepare a PR review mega prompt with long context and a diff against the base branch.",
+            title="📋 PR Review",
+            description="Prepare a PR review mega prompt with long context and a diff.",
             handler=run_pr_review,
         ),
         MenuAction(
             key="feature-security",
-            title="Feature & security",
-            description="Analyze a branch for features, security, and modernization opportunities.",
+            title="🛡️  Security",
+            description="Analyze a branch for features, security, and modernization.",
             handler=run_feature_security,
         ),
     ]
@@ -635,10 +703,11 @@ def launch_interactive() -> None:
     action = choose_action(actions)
 
     if action is None:
-        console.print("[yellow]No action selected. Exiting.[/yellow]")
+        print_status("No action selected. Goodbye!", "info")
         raise typer.Exit(code=0)
 
-    console.print(f"\n[cyan]Starting: {action.title}[/cyan]\n")
+    print_status(f"Starting: {action.title}", "info")
+    console.print()
     action.handler(repo_path, report_path)
 
 
