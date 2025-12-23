@@ -25,6 +25,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.table import Table
+from rich.text import Text
 from rich.theme import Theme
 
 from . import core
@@ -32,20 +33,30 @@ from . import core
 POLL_INTERVAL_SECONDS = 30
 TOKEN_WARNING_THRESHOLD = 128_000
 
-BANNER = r"""
-░███     ░███            ░██    ░██    ░██                             ░██
-░████   ░████            ░██    ░██                                    ░██
-░██░██ ░██░██ ░██    ░██ ░██ ░████████ ░██ ░███████   ░███████   ░████████  ░███████  ░██    ░██
-░██ ░████ ░██ ░██    ░██ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██    ░██ ░██    ░██  ░██  ░██
-░██  ░██  ░██ ░██    ░██ ░██    ░██    ░██░██        ░██    ░██ ░██    ░██ ░█████████   ░█████
-░██       ░██ ░██   ░███ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██   ░███ ░██         ░██  ░██
-░██       ░██  ░█████░██ ░██     ░████ ░██ ░███████   ░███████   ░█████░██  ░███████  ░██    ░██
+BANNER_LINES = [
+    "░███     ░███            ░██    ░██    ░██                             ░██",
+    "░████   ░████            ░██    ░██                                    ░██",
+    "░██░██ ░██░██ ░██    ░██ ░██ ░████████ ░██ ░███████   ░███████   ░████████  ░███████  ░██    ░██",
+    "░██ ░████ ░██ ░██    ░██ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██    ░██ ░██    ░██  ░██  ░██",
+    "░██  ░██  ░██ ░██    ░██ ░██    ░██    ░██░██        ░██    ░██ ░██    ░██ ░█████████   ░█████",
+    "░██       ░██ ░██   ░███ ░██    ░██    ░██░██    ░██ ░██    ░██ ░██   ░███ ░██         ░██  ░██",
+    "░██       ░██  ░█████░██ ░██     ░████ ░██ ░███████   ░███████   ░█████░██  ░███████  ░██    ░██",
+    "",
+    "",
+    "",
+    "Multi-branch solution evaluator for GitHub repos.",
+]
 
-
-
-
-Multi-branch solution evaluator for GitHub repos.
-"""
+LOGO_LINE_COUNT = 7
+BANNER_COLORS = [
+    "bright_red",
+    "bright_magenta",
+    "bright_blue",
+    "bright_cyan",
+    "bright_green",
+    "bright_yellow",
+    "bright_red",
+]
 
 
 custom_theme = Theme(
@@ -80,9 +91,17 @@ class BranchSpec:
 
 
 def print_banner() -> None:
-    styled_banner = Align.center(
-        Markdown(f"```\n{BANNER}\n```"), vertical="middle"
-    )
+    banner_text = Text()
+    for idx, line in enumerate(BANNER_LINES):
+        if idx < LOGO_LINE_COUNT:
+            style = BANNER_COLORS[idx % len(BANNER_COLORS)]
+        else:
+            style = "bright_white"
+        banner_text.append(line, style=style)
+        if idx < len(BANNER_LINES) - 1:
+            banner_text.append("\n")
+
+    styled_banner = Align.center(banner_text, vertical="middle")
     console.print(
         Panel(
             styled_banner,
