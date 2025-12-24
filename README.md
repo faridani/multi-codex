@@ -56,6 +56,15 @@ pip install .
 multi-codex
 ```
 
+On windows it is easier to install the package using python venv. In your root directory for `multi-codex` run the following
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install .
+```
+Now you should be able to run the code by simply typing `multi-codex` 
+
 ## Uninstall 
 
 To remove previously installed versions of multi-codex simply run 
